@@ -26,10 +26,13 @@ const generarEmpleados=()=>Array.from({length:5},(_,i)=>({
 export default function App(){
 
   // LOAD LOCAL STORAGE
-  useEffect(()=>{
+
+useEffect(()=>{
+  try{
     const data = localStorage.getItem('tortilleria_app');
     if(data){
       const s = JSON.parse(data);
+
       if(s.clientes) setClientes(s.clientes);
       if(s.empleados) setEmpleados(s.empleados);
       if(s.totalPesos) setTotalPesos(s.totalPesos);
@@ -44,8 +47,12 @@ export default function App(){
       if(s.kgRecuperados) setKgRecuperados(s.kgRecuperados);
       if(s.mermaKg) setMermaKg(s.mermaKg);
     }
-  },[]);
-
+  }catch(e){
+    console.log("Error cargando datos", e);
+    localStorage.removeItem('tortilleria_app');
+  }
+},[]);
+  
   // SAVE LOCAL STORAGE
   useEffect(()=>{
     const data = {
