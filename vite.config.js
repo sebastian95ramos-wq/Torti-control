@@ -10,7 +10,11 @@ export default defineConfig({
       manifest: {
         name: 'Mi App',
         short_name: 'App',
-        theme_color: '#ffffff',
+        start_url: '/',
+        display: 'standalone',
+        scope: '/',
+        theme_color: '#000000',
+        background_color: '#ffffff',
         icons: [
           {
             src: '/icon-192.png',
