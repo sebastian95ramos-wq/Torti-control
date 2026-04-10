@@ -24,6 +24,48 @@ const generarEmpleados=()=>Array.from({length:5},(_,i)=>({
 }));
 
 export default function App(){
+//Estados
+  const [tab,setTab]=useState('venta');
+  const [precioKg,setPrecioKg]=useState(24);
+
+  const [clientes,setClientes]=useState(generarClientes());
+  const [empleados,setEmpleados]=useState(generarEmpleados());
+
+  const [temp,setTemp]=useState({});
+
+  const [ventaKg,setVentaKg]=useState('');
+  const [ventaPesos,setVentaPesos]=useState('');
+  const [totalPesos,setTotalPesos]=useState(0);
+  const [historialVentas,setHistorialVentas]=useState([]);
+
+  const [bultos,setBultos]=useState(0);
+  const [inputBultos,setInputBultos]=useState('');
+
+  const [rendimiento,setRendimiento]=useState(38);
+
+  const [precioHarina,setPrecioHarina]=useState(335);
+  const [precioGas,setPrecioGas]=useState(11);
+  const [gasPorBulto,setGasPorBulto]=useState(7);
+
+  const [gastosDiarios,setGastosDiarios]=useState(0);
+  const [kgRecuperados,setKgRecuperados]=useState(0);
+  const [inputKgRec,setInputKgRec]=useState('');
+  const [mermaKg,setMermaKg]=useState(0);
+  const [inputMerma,setInputMerma]=useState('');
+  const [historialGastos,setHistorialGastos]=useState([]);
+  const [inputGastos,setInputGastos]=useState('');
+
+  const [selectedCliente,setSelectedCliente]=useState(0);
+  const [nuevoPrecio,setNuevoPrecio]=useState('');
+
+  const [nuevoCliente,setNuevoCliente]=useState('');
+  const [nuevoNombreCliente,setNuevoNombreCliente]=useState('');
+
+  const [selectedEmpleado,setSelectedEmpleado]=useState(0);
+  const [nuevoSueldo,setNuevoSueldo]=useState('');
+
+  const [fechaReporte,setFechaReporte]=useState(getTodayKey());
+  const [dayKey,setDayKey]=useState(getTodayKey());
 
   // LOAD LOCAL STORAGE
 useEffect(()=>{
@@ -71,48 +113,7 @@ useEffect(()=>{
     };
     localStorage.setItem('tortilleria_app', JSON.stringify(data));
   },[clientes,empleados,totalPesos,historialVentas,gastosDiarios,historialGastos,bultos,precioKg,precioHarina,precioGas,gasPorBulto,kgRecuperados,mermaKg]);
-  const [tab,setTab]=useState('venta');
-  const [precioKg,setPrecioKg]=useState(24);
-
-  const [clientes,setClientes]=useState(generarClientes());
-  const [empleados,setEmpleados]=useState(generarEmpleados());
-
-  const [temp,setTemp]=useState({});
-
-  const [ventaKg,setVentaKg]=useState('');
-  const [ventaPesos,setVentaPesos]=useState('');
-  const [totalPesos,setTotalPesos]=useState(0);
-  const [historialVentas,setHistorialVentas]=useState([]);
-
-  const [bultos,setBultos]=useState(0);
-  const [inputBultos,setInputBultos]=useState('');
-
-  const [rendimiento,setRendimiento]=useState(38);
-
-  const [precioHarina,setPrecioHarina]=useState(335);
-  const [precioGas,setPrecioGas]=useState(11);
-  const [gasPorBulto,setGasPorBulto]=useState(7);
-
-  const [gastosDiarios,setGastosDiarios]=useState(0);
-  const [kgRecuperados,setKgRecuperados]=useState(0);
-  const [inputKgRec,setInputKgRec]=useState('');
-  const [mermaKg,setMermaKg]=useState(0);
-  const [inputMerma,setInputMerma]=useState('');
-  const [historialGastos,setHistorialGastos]=useState([]);
-  const [inputGastos,setInputGastos]=useState('');
-
-  const [selectedCliente,setSelectedCliente]=useState(0);
-  const [nuevoPrecio,setNuevoPrecio]=useState('');
-
-  const [nuevoCliente,setNuevoCliente]=useState('');
-  const [nuevoNombreCliente,setNuevoNombreCliente]=useState('');
-
-  const [selectedEmpleado,setSelectedEmpleado]=useState(0);
-  const [nuevoSueldo,setNuevoSueldo]=useState('');
-
-  const [fechaReporte,setFechaReporte]=useState(getTodayKey());
-  const [dayKey,setDayKey]=useState(getTodayKey());
-
+  
   useEffect(()=>{
     const i=setInterval(()=>{
       const today=getTodayKey();
