@@ -1,9 +1,9 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import jsPDF from "jspdf";
 
 function getTodayKey(){
   const d=new Date();
-  return `${d.getFullYear()}-${d.getMonth()+1}-${d.getDate()}`;
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
 }
 
 const generarClientes=()=>Array.from({length:15},(_,i)=>({
@@ -22,6 +22,31 @@ const generarEmpleados=()=>Array.from({length:5},(_,i)=>({
   sueldo:200,
   activo:true
 }));
+
+const STORAGE_KEY = 'tortilleria_app';
+function readSaved(){
+  try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null'); }
+  catch(e){ console.error('No se pudo leer el respaldo local',e); return null; }
+}
+function rollover(data, today){
+  if (!data) return null;
+  const oldDay = data.dayKey || today; // Datos anteriores sin fecha: no asumir que son de ayer.
+  if (oldDay >= today) return {...data, dayKey:oldDay};
+  const archive = {...(data.archive || {})};
+  archive[oldDay] = {
+    fecha:oldDay, clientes:data.clientes || [], totalPesos:data.totalPesos || 0,
+    historialVentas:data.historialVentas || [], gastosDiarios:data.gastosDiarios || 0,
+    historialGastos:data.historialGastos || [], bultos:data.bultos || 0,
+    kgRecuperados:data.kgRecuperados || 0, mermaKg:data.mermaKg || 0
+  };
+  return {...data, archive, dayKey:today,
+    clientes:(data.clientes || generarClientes()).map(c=>({
+      ...c, ayer:Number(c.hoy || 0), hoy:0, pagadoHoy:0, devHoy:0
+    })), totalPesos:0, historialVentas:[], gastosDiarios:0,
+    historialGastos:[], bultos:0, kgRecuperados:0, mermaKg:0};
+}
+const initialData = rollover(readSaved(),getTodayKey());
+if(initialData) localStorage.setItem(STORAGE_KEY,JSON.stringify(initialData));
 
 export default function App(){
 //Estados
@@ -67,65 +92,69 @@ export default function App(){
   const [fechaReporte,setFechaReporte]=useState(getTodayKey());
   const [dayKey,setDayKey]=useState(getTodayKey());
 
-  // LOAD LOCAL STORAGE
-useEffect(()=>{
-  try{
-    const data = localStorage.getItem('tortilleria_app');
-    if(data){
-      const s = JSON.parse(data);
+  const [ready,setReady]=useState(false);
+  const [archive,setArchive]=useState(initialData?.archive || {});
+  const currentRef=useRef(null);
 
+  // Carga inicial: no sobrescribir el almacenamiento antes de recuperar los datos.
+  useEffect(()=>{
+    const s=initialData;
+    if(s){
       if(s.clientes) setClientes(s.clientes);
       if(s.empleados) setEmpleados(s.empleados);
-      if(s.totalPesos) setTotalPesos(s.totalPesos);
-      if(s.historialVentas) setHistorialVentas(s.historialVentas);
-      if(s.gastosDiarios) setGastosDiarios(s.gastosDiarios);
-      if(s.historialGastos) setHistorialGastos(s.historialGastos);
-      if(s.bultos) setBultos(s.bultos);
-      if(s.precioKg) setPrecioKg(s.precioKg);
-      if(s.precioHarina) setPrecioHarina(s.precioHarina);
-      if(s.precioGas) setPrecioGas(s.precioGas);
-      if(s.gasPorBulto) setGasPorBulto(s.gasPorBulto);
-      if(s.kgRecuperados) setKgRecuperados(s.kgRecuperados);
-      if(s.mermaKg) setMermaKg(s.mermaKg);
+      setTotalPesos(s.totalPesos ?? 0);
+      setHistorialVentas(s.historialVentas || []);
+      setGastosDiarios(s.gastosDiarios ?? 0);
+      setHistorialGastos(s.historialGastos || []);
+      setBultos(s.bultos ?? 0);
+      setPrecioKg(s.precioKg ?? 24);
+      setPrecioHarina(s.precioHarina ?? 335);
+      setPrecioGas(s.precioGas ?? 11);
+      setGasPorBulto(s.gasPorBulto ?? 7);
+      setKgRecuperados(s.kgRecuperados ?? 0);
+      setMermaKg(s.mermaKg ?? 0);
+      setRendimiento(s.rendimiento ?? 38);
+      setDayKey(s.dayKey || getTodayKey());
     }
-  }catch(e){
-    console.log("Error cargando datos", e);
-    localStorage.removeItem('tortilleria_app');
-  }
-},[]);
+    setReady(true);
+  },[]);
 
-  // SAVE LOCAL STORAGE
+  const stateData={clientes,empleados,totalPesos,historialVentas,gastosDiarios,
+    historialGastos,bultos,precioKg,precioHarina,precioGas,gasPorBulto,
+    kgRecuperados,mermaKg,rendimiento,dayKey,archive};
+  currentRef.current=stateData;
+
   useEffect(()=>{
-    const data = {
-      clientes,
-      empleados,
-      totalPesos,
-      historialVentas,
-      gastosDiarios,
-      historialGastos,
-      bultos,
-      precioKg,
-      precioHarina,
-      precioGas,
-      gasPorBulto,
-      kgRecuperados,
-      mermaKg
-    };
-    localStorage.setItem('tortilleria_app', JSON.stringify(data));
-  },[clientes,empleados,totalPesos,historialVentas,gastosDiarios,historialGastos,bultos,precioKg,precioHarina,precioGas,gasPorBulto,kgRecuperados,mermaKg]);
-  
+    if(!ready) return;
+    localStorage.setItem(STORAGE_KEY,JSON.stringify(stateData));
+  },[ready,clientes,empleados,totalPesos,historialVentas,gastosDiarios,
+    historialGastos,bultos,precioKg,precioHarina,precioGas,gasPorBulto,
+    kgRecuperados,mermaKg,rendimiento,dayKey,archive]);
+
   useEffect(()=>{
-    const i=setInterval(()=>{
+    if(!ready) return;
+    const checkDay=()=>{
       const today=getTodayKey();
-      if(today!==dayKey){
-        setClientes(prev=>prev.map(c=>({...c,ayer:c.hoy,hoy:0,pagadoHoy:0,devHoy:0})));
-        setHistorialVentas([]);
-        setTotalPesos(0);
-        setDayKey(today);
-      }
-    },60000);
-    return ()=>clearInterval(i);
-  },[dayKey]);
+      const s=currentRef.current;
+      if(!s || today<=s.dayKey) return;
+      const updated=rollover(s,today);
+      // Persistir el cierre antes de aplicar los cambios de interfaz.
+      localStorage.setItem(STORAGE_KEY,JSON.stringify(updated));
+      setArchive(updated.archive);
+      setClientes(updated.clientes);
+      setHistorialVentas([]); setTotalPesos(0);
+      setGastosDiarios(0); setHistorialGastos([]);
+      setBultos(0); setKgRecuperados(0); setMermaKg(0);
+      setDayKey(today);
+    };
+    const onVisible=()=>{if(document.visibilityState==='visible') checkDay();};
+    window.addEventListener('focus',checkDay);
+    document.addEventListener('visibilitychange',onVisible);
+    const timer=setInterval(checkDay,30000);
+    checkDay();
+    return ()=>{clearInterval(timer);window.removeEventListener('focus',checkDay);
+      document.removeEventListener('visibilitychange',onVisible);};
+  },[ready]);
 
   const registrarVenta=()=>{
     if(!ventaKg && !ventaPesos) return;
@@ -159,13 +188,21 @@ useEffect(()=>{
   const utilidad=ingresoTotal-costoTotal;
 
   const generarPDF=()=>{
+    if(fechaReporte !== dayKey && !archive[fechaReporte]){
+      alert('No hay datos guardados para esa fecha.'); return;
+    }
+    const snapshot=fechaReporte===dayKey ? null : archive[fechaReporte];
+    const ingresoReporte=snapshot ? (snapshot.totalPesos + snapshot.clientes.reduce((a,c)=>a+Number(c.pagadoHoy||0),0)) : ingresoTotal;
+    const costoReporte=snapshot ? (snapshot.bultos*(precioHarina+gasPorBulto*precioGas)+Number(snapshot.gastosDiarios||0)+sueldosActivos) : costoTotal;
+    const bultosReporte=snapshot ? snapshot.bultos : bultos;
+    const kgReporte=snapshot ? (snapshot.totalPesos/precioKg+snapshot.clientes.reduce((a,c)=>a+Number(c.hoy||0),0)) : kgTotales;
     const doc=new jsPDF();
     doc.text(`Reporte ${fechaReporte}`,10,10);
-    doc.text(`Ingreso: $${ingresoTotal}`,10,20);
-    doc.text(`Costos: $${costoTotal}`,10,30);
-    doc.text(`Utilidad: $${utilidad}`,10,40);
-    doc.text(`Bultos: ${bultos}`,10,50);
-    doc.text(`Kg totales: ${kgTotales.toFixed(2)}`,10,60);
+    doc.text(`Ingreso: $${ingresoReporte}`,10,20);
+    doc.text(`Costos: $${costoReporte}`,10,30);
+    doc.text(`Utilidad: $${ingresoReporte-costoReporte}`,10,40);
+    doc.text(`Bultos: ${bultosReporte}`,10,50);
+    doc.text(`Kg totales: ${kgReporte.toFixed(2)}`,10,60);
     doc.save(`reporte_${fechaReporte}.pdf`);
 
   }
