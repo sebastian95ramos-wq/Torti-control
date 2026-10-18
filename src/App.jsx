@@ -381,7 +381,26 @@ export default function App(){
           })() : (()=>{
             const lista=movimientosReparto.filter(m=>m.fecha===fechaHistorial);
             const resumen=archive[fechaHistorial];
+            // Usar movimientos individuales cuando existen; para días antiguos,
+            // utilizar los acumulados de cierre sin contarlos dos veces.
+            const clientesDia=fechaHistorial===dayKey ? clientes : (resumen?.clientes || []);
+            const desdeMovimientos=lista.length>0;
+            const suma=(items, campo)=>items.reduce((acc,item)=>acc+Number(item[campo]||0),0);
+            const kgEntregados=desdeMovimientos
+              ? suma(lista.filter(m=>m.tipo==='Entrega'),'kg')
+              : suma(clientesDia,'hoy');
+            const kgDevueltos=desdeMovimientos
+              ? suma(lista.filter(m=>m.tipo==='Devolución'),'kg')
+              : suma(clientesDia,'devHoy');
+            const totalCobrado=desdeMovimientos
+              ? suma(lista.filter(m=>m.tipo==='Cobranza'),'importe')
+              : suma(clientesDia,'pagadoHoy');
             return <div className="space-y-2">
+              <div className="grid grid-cols-3 gap-2 text-center rounded-xl bg-blue-50 p-3">
+                <div><p className="text-xs text-gray-600">Kg entregados</p><p className="font-bold">{kgEntregados.toFixed(2)}</p></div>
+                <div><p className="text-xs text-gray-600">Kg devueltos</p><p className="font-bold">{kgDevueltos.toFixed(2)}</p></div>
+                <div><p className="text-xs text-gray-600">Total cobrado</p><p className="font-bold">${totalCobrado.toFixed(2)}</p></div>
+              </div>
               {lista.length===0 && resumen?.clientes?.length>0 && <div className="rounded-lg bg-blue-50 p-3 text-sm space-y-2">
                 <p className="font-semibold">Resumen recuperado del cierre de {fechaHistorial}</p>
                 <p className="text-gray-600">Estos son los acumulados que quedaron guardados al cerrar ese día. No son movimientos individuales; no se conservaron sus horas.</p>
