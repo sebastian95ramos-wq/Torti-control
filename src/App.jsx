@@ -246,9 +246,17 @@ export default function App(){
               }}/>
             <button className="bg-blue-600 text-white w-1/3 p-3 rounded-xl text-lg" onClick={registrarVenta}>Vender</button>
           </div>
-          <p className="font-bold">Total: ${totalPesos}</p>
-
-
+          <p className="font-bold">Total: ${totalPesos.toFixed(2)}</p>
+          <div className="mt-3 border-t pt-3 space-y-2">
+            <h3 className="font-semibold">Ventas de hoy</h3>
+            {historialVentas.length===0 && <p className="text-sm text-gray-500">Aún no hay ventas registradas.</p>}
+            {[...historialVentas].reverse().map((v,i)=>(
+              <div key={i} className="flex justify-between gap-2 border-b py-2 text-sm">
+                <span>{v.fecha || dayKey} · {v.hora || 'Hora no disponible'}</span>
+                <span className="font-medium">{Number(v.kg||0).toFixed(2)} kg · ${Number(v.pesos||0).toFixed(2)}</span>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
@@ -372,9 +380,20 @@ export default function App(){
             </div>;
           })() : (()=>{
             const lista=movimientosReparto.filter(m=>m.fecha===fechaHistorial);
+            const resumen=archive[fechaHistorial];
             return <div className="space-y-2">
+              {lista.length===0 && resumen?.clientes?.length>0 && <div className="rounded-lg bg-blue-50 p-3 text-sm space-y-2">
+                <p className="font-semibold">Resumen recuperado del cierre de {fechaHistorial}</p>
+                <p className="text-gray-600">Estos son los acumulados que quedaron guardados al cerrar ese día. No son movimientos individuales; no se conservaron sus horas.</p>
+                {resumen.clientes.filter(c=>Number(c.hoy||0)>0 || Number(c.devHoy||0)>0 || Number(c.pagadoHoy||0)>0).map((c,i)=>(
+                  <div key={i} className="border-t pt-2">
+                    <p className="font-medium">{c.nombre}</p>
+                    <p>Entregados: {Number(c.hoy||0)} kg · Devoluciones registradas: {Number(c.devHoy||0)} kg · Cobrado: ${Number(c.pagadoHoy||0).toFixed(2)}</p>
+                  </div>
+                ))}
+              </div>}
               <p className="font-semibold">{lista.length} movimientos</p>
-              {lista.length===0 && <p className="text-sm text-gray-500">No hay movimientos registrados en esta fecha.</p>}
+              {lista.length===0 && !resumen?.clientes?.length && <p className="text-sm text-gray-500">No hay movimientos registrados en esta fecha. Los movimientos anteriores a la instalación del historial no se pueden reconstruir individualmente.</p>}
               {lista.map((m,i)=><div key={i} className="border-b py-2 text-sm">
                 <p className="font-semibold">{m.cliente} · {m.tipo}</p>
                 <p className="text-gray-600">{m.fecha} · {m.hora}{m.tipo==='Devolución' && m.fechaEntrega ? ` · Corresponde a ${m.fechaEntrega}` : ''}</p>
