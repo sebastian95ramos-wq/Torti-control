@@ -23,6 +23,10 @@ const generarEmpleados=()=>Array.from({length:5},(_,i)=>({
   activo:true
 }));
 
+function timestampLocal(){
+  const d=new Date();
+  return {fecha:getTodayKey(),hora:d.toLocaleTimeString('es-MX',{hour12:false}),fechaHora:d.toISOString()};
+}
 const STORAGE_KEY = 'tortilleria_app';
 function readSaved(){
   try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null'); }
@@ -62,6 +66,9 @@ export default function App(){
   const [ventaPesos,setVentaPesos]=useState('');
   const [totalPesos,setTotalPesos]=useState(0);
   const [historialVentas,setHistorialVentas]=useState([]);
+  const [movimientosReparto,setMovimientosReparto]=useState(initialData?.movimientosReparto || []);
+  const [fechaHistorial,setFechaHistorial]=useState(getTodayKey());
+  const [tipoHistorial,setTipoHistorial]=useState('ventas');
 
   const [bultos,setBultos]=useState(0);
   const [inputBultos,setInputBultos]=useState('');
@@ -104,6 +111,7 @@ export default function App(){
       if(s.empleados) setEmpleados(s.empleados);
       setTotalPesos(s.totalPesos ?? 0);
       setHistorialVentas(s.historialVentas || []);
+      setMovimientosReparto(s.movimientosReparto || []);
       setGastosDiarios(s.gastosDiarios ?? 0);
       setHistorialGastos(s.historialGastos || []);
       setBultos(s.bultos ?? 0);
@@ -119,7 +127,7 @@ export default function App(){
     setReady(true);
   },[]);
 
-  const stateData={clientes,empleados,totalPesos,historialVentas,gastosDiarios,
+  const stateData={clientes,empleados,totalPesos,historialVentas,movimientosReparto,gastosDiarios,
     historialGastos,bultos,precioKg,precioHarina,precioGas,gasPorBulto,
     kgRecuperados,mermaKg,rendimiento,dayKey,archive};
   currentRef.current=stateData;
@@ -127,7 +135,7 @@ export default function App(){
   useEffect(()=>{
     if(!ready) return;
     localStorage.setItem(STORAGE_KEY,JSON.stringify(stateData));
-  },[ready,clientes,empleados,totalPesos,historialVentas,gastosDiarios,
+  },[ready,clientes,empleados,totalPesos,historialVentas,movimientosReparto,gastosDiarios,
     historialGastos,bultos,precioKg,precioHarina,precioGas,gasPorBulto,
     kgRecuperados,mermaKg,rendimiento,dayKey,archive]);
 
@@ -163,7 +171,7 @@ export default function App(){
     if(pesos===0 && kg===0) return;
 
     setTotalPesos(p=>p+pesos);
-    setHistorialVentas(prev=>[...prev,{kg,pesos,hora:new Date().toLocaleTimeString()}]);
+    setHistorialVentas(prev=>[...prev,{kg,pesos,...timestampLocal()}]);
 
     setVentaKg('');
     setVentaPesos('');
@@ -212,7 +220,7 @@ export default function App(){
       <h1 className="text-2xl font-bold">Tortillería</h1>
 
       <div className="flex gap-2">
-        {['venta','reparto','control','config'].map(t=>(
+        {['venta','reparto','historial','control','config'].map(t=>(
           <button key={t} onClick={()=>setTab(t)}
             className={`flex-1 p-2 rounded-xl ${tab===t?'bg-blue-500 text-white':'bg-white shadow'}`}>
             {t}
@@ -240,12 +248,7 @@ export default function App(){
           </div>
           <p className="font-bold">Total: ${totalPesos}</p>
 
-          <div>
-            <h2 className="font-bold">Historial</h2>
-            {historialVentas.map((v,i)=>(
-              <p key={i} className="text-sm">{v.hora} - {v.kg}kg - ${v.pesos}</p>
-            ))}
-          </div>
+
         </div>
       )}
 
@@ -317,6 +320,14 @@ export default function App(){
                   const pag=Number(d.pag||0);
                   const dev=Number(d.dev||0);
 
+                  if(![ent,pag,dev].every(n=>Number.isFinite(n) && n>=0) || !(ent||pag||dev)) return;
+                  const sello=timestampLocal();
+                  const clActual=clientes[i];
+                  const movimientos=[];
+                  if(ent) movimientos.push({...sello,cliente:clActual.nombre,tipo:'Entrega',kg:ent,importe:ent*clActual.precio});
+                  if(dev) movimientos.push({...sello,cliente:clActual.nombre,tipo:'Devolución',kg:dev,importe:dev*clActual.precio,fechaEntrega:dayKey > '0000' ? (()=>{const d=new Date(dayKey+'T12:00:00');d.setDate(d.getDate()-1);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;})() : ''});
+                  if(pag) movimientos.push({...sello,cliente:clActual.nombre,tipo:'Cobranza',importe:pag});
+                  setMovimientosReparto(prev=>[...prev,...movimientos]);
                   setClientes(prev=>prev.map((cl,idx)=>{
                     if(idx===i){
                       return {
@@ -337,6 +348,40 @@ export default function App(){
               </button>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* HISTORIAL: fuera de las pantallas de captura */}
+      {tab==='historial' && (
+        <div className="bg-white p-4 rounded-2xl shadow space-y-3">
+          <h2 className="text-lg font-bold">Historial por día</h2>
+          <div className="flex gap-2">
+            <button className={`flex-1 p-2 rounded-lg ${tipoHistorial==='ventas'?'bg-blue-600 text-white':'bg-gray-100'}`} onClick={()=>setTipoHistorial('ventas')}>Ventas</button>
+            <button className={`flex-1 p-2 rounded-lg ${tipoHistorial==='reparto'?'bg-blue-600 text-white':'bg-gray-100'}`} onClick={()=>setTipoHistorial('reparto')}>Reparto y cobranza</button>
+          </div>
+          <label className="block text-sm font-semibold">Consultar fecha</label>
+          <input type="date" className="border rounded-lg p-2 w-full" value={fechaHistorial} onChange={e=>setFechaHistorial(e.target.value)} />
+          {tipoHistorial==='ventas' ? (()=>{
+            const ventas=fechaHistorial===dayKey ? historialVentas : (archive[fechaHistorial]?.historialVentas || []);
+            const total=ventas.reduce((a,v)=>a+Number(v.pesos||0),0);
+            const kilos=ventas.reduce((a,v)=>a+Number(v.kg||0),0);
+            return <div className="space-y-2">
+              <p className="font-semibold">{ventas.length} ventas · {kilos.toFixed(2)} kg · ${total.toFixed(2)}</p>
+              {ventas.length===0 && <p className="text-sm text-gray-500">No hay ventas registradas en esta fecha.</p>}
+              {ventas.map((v,i)=><div key={i} className="border-b py-2 text-sm flex justify-between gap-2"><span>{v.fecha || fechaHistorial} · {v.hora || 'Hora no disponible'}</span><span>{v.kg} kg · ${Number(v.pesos||0).toFixed(2)}</span></div>)}
+            </div>;
+          })() : (()=>{
+            const lista=movimientosReparto.filter(m=>m.fecha===fechaHistorial);
+            return <div className="space-y-2">
+              <p className="font-semibold">{lista.length} movimientos</p>
+              {lista.length===0 && <p className="text-sm text-gray-500">No hay movimientos registrados en esta fecha.</p>}
+              {lista.map((m,i)=><div key={i} className="border-b py-2 text-sm">
+                <p className="font-semibold">{m.cliente} · {m.tipo}</p>
+                <p className="text-gray-600">{m.fecha} · {m.hora}{m.tipo==='Devolución' && m.fechaEntrega ? ` · Corresponde a ${m.fechaEntrega}` : ''}</p>
+                <p>{m.kg ? `${m.kg} kg · ` : ''}${Number(m.importe||0).toFixed(2)}</p>
+              </div>)}
+            </div>;
+          })()}
         </div>
       )}
 
