@@ -93,6 +93,7 @@ export default function App(){
   const [movimientosProduccion,setMovimientosProduccion]=useState(initialData?.movimientosProduccion || []);
   const [editorProduccion,setEditorProduccion]=useState(null);
   const [valorProduccion,setValorProduccion]=useState('');
+  const [editorResumenProduccion,setEditorResumenProduccion]=useState(null);
   const [bultos,setBultos]=useState(0);
   const [inputBultos,setInputBultos]=useState('');
 
@@ -311,6 +312,22 @@ export default function App(){
     setEditorProduccion(null);
   };
 
+  const guardarResumenProduccion=()=>{
+    if(!editorResumenProduccion)return;
+    const {fecha,campo,valor}=editorResumenProduccion;
+    const n=Number(valor);
+    if(valor.trim()===''||!Number.isFinite(n)||n<0){alert('Escribe una cantidad válida.');return;}
+    const previo=fecha===dayKey ? {bultos,mermaKg,kgRecuperados}[campo] : archive[fecha]?.[campo];
+    if(fecha!==dayKey&&!archive[fecha]){alert('No existe un cierre guardado para esta fecha.');return;}
+    if(fecha===dayKey){
+      ({bultos:setBultos,mermaKg:setMermaKg,kgRecuperados:setKgRecuperados})[campo](n);
+    }else{
+      setArchive(prev=>({...prev,[fecha]:{...prev[fecha],[campo]:n}}));
+    }
+    setAudit(prev=>[...prev,{fechaHora:new Date().toISOString(),accion:'Corregir total histórico',clase:'produccion',fecha,campo,anterior:previo,nuevo:n}]);
+    setEditorResumenProduccion(null);
+  };
+
   const pagosReparto=clientes.reduce((a,c)=>a+(c.pagadoHoy||0),0);
   const totalKgHoy = clientes.reduce((a,c)=>a+(c.hoy||0),0);
   const totalDevHoy = clientes.reduce((a,c)=>a+(c.devHoy||0),0);
@@ -514,7 +531,15 @@ export default function App(){
                 <div><p className="text-xs text-gray-600">Merma kg</p><p className="font-bold">{num(datos?.mermaKg).toFixed(2)}</p></div>
                 <div><p className="text-xs text-gray-600">Recuperados kg</p><p className="font-bold">{num(datos?.kgRecuperados).toFixed(2)}</p></div>
               </div>
-              <p className="text-sm text-gray-500">Selecciona un registro para corregirlo o eliminarlo. Los totales del cierre también se actualizarán.</p>
+              <p className="text-sm text-gray-500">Selecciona un registro para editarlo o eliminarlo. Los resúmenes antiguos sin registros individuales también pueden corregirse.</p>
+              {datos && <div className="grid grid-cols-3 gap-2">
+                {[['bultos','Bultos','Bultos'],['mermaKg','Merma','Merma'],['kgRecuperados','Recuperados','Recuperados']].map(([campo,nombre,tipo])=>{
+                  const tieneRegistros=registros.some(m=>m.tipo===tipo);
+                  return <button type="button" key={campo} disabled={tieneRegistros} className={`text-xs rounded-lg p-2 ${tieneRegistros?'bg-gray-100 text-gray-400':'bg-blue-100 text-blue-800 font-semibold'}`} onClick={()=>setEditorResumenProduccion({fecha:fechaHistorial,campo,valor:String(num(datos[campo]))})}>
+                    {tieneRegistros?'Editar registro ↑':`Editar ${nombre}`}
+                  </button>;
+                })}
+              </div>}
               {registros.length===0 && <p className="text-sm text-gray-500">No hay movimientos individuales de producción para esta fecha. Los totales antiguos se conservan cuando existe un cierre guardado.</p>}
               {registros.map(m=><button type="button" key={m.id} className="w-full text-left border-b py-2 text-sm" onClick={()=>{setEditorProduccion({mov,index:movimientosProduccion.indexOf(m)});setValorProduccion(String(m.cantidad));}}>
                 <p className="font-semibold">{m.tipo==='Bultos'?'Bultos procesados':m.tipo==='Merma'?'Merma':'Kg recuperados'}: {num(m.cantidad).toFixed(2)} {m.tipo==='Bultos'?'bultos':'kg'}</p>
@@ -575,6 +600,19 @@ export default function App(){
           })())}
         </div>
       )}
+
+      {editorResumenProduccion && <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-xl p-5 w-full max-w-sm space-y-3">
+          <h2 className="font-bold text-lg">Corregir total de producción</h2>
+          <p className="text-sm text-gray-600">{editorResumenProduccion.fecha} · {editorResumenProduccion.campo}</p>
+          <p className="text-xs text-amber-700">Corrección del resumen guardado. No se inventarán movimientos ni horas anteriores.</p>
+          <input type="number" min="0" step="any" className="border rounded p-2 w-full" value={editorResumenProduccion.valor} onChange={e=>setEditorResumenProduccion(prev=>({...prev,valor:e.target.value}))}/>
+          <div className="flex gap-2">
+            <button className="bg-blue-600 text-white rounded p-2 flex-1" onClick={guardarResumenProduccion}>Guardar</button>
+            <button className="bg-gray-200 rounded p-2" onClick={()=>setEditorResumenProduccion(null)}>Cancelar</button>
+          </div>
+        </div>
+      </div>}
 
       {editorProduccion && <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
         <div className="bg-white rounded-2xl shadow-xl p-5 w-full max-w-sm space-y-3">
