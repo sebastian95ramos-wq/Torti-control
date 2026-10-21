@@ -28,6 +28,20 @@ function timestampLocal(){
   return {fecha:getTodayKey(),hora:d.toLocaleTimeString('es-MX',{hour12:false}),fechaHora:d.toISOString()};
 }
 const STORAGE_KEY = 'tortilleria_app';
+const makeId=()=>`${Date.now()}-${Math.random().toString(36).slice(2,10)}`;
+const num=v=>Number(v||0);
+const sameClient=(m,c,i)=>m.clienteId!=null ? m.clienteId===i : m.cliente===c.nombre;
+function applyMovement(client,m,sign){
+  const value=num(m.importe), kg=num(m.kg);
+  return {...client,
+    deuda:num(client.deuda)+sign*(m.tipo==='Entrega'?value:-value),
+    hoy:num(client.hoy)+(m.tipo==='Entrega'?sign*kg:0),
+    kg:num(client.kg)+(m.tipo==='Entrega'?sign*kg:0),
+    pagadoHoy:num(client.pagadoHoy)+(m.tipo==='Cobranza'?sign*value:0),
+    devHoy:num(client.devHoy)+(m.tipo==='Devolución'?sign*kg:0)
+  };
+}
+
 function readSaved(){
   try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null'); }
   catch(e){ console.error('No se pudo leer el respaldo local',e); return null; }
@@ -41,7 +55,9 @@ function rollover(data, today){
     fecha:oldDay, clientes:data.clientes || [], totalPesos:data.totalPesos || 0,
     historialVentas:data.historialVentas || [], gastosDiarios:data.gastosDiarios || 0,
     historialGastos:data.historialGastos || [], bultos:data.bultos || 0,
-    kgRecuperados:data.kgRecuperados || 0, mermaKg:data.mermaKg || 0
+    kgRecuperados:data.kgRecuperados || 0, mermaKg:data.mermaKg || 0,
+    empleados:data.empleados || [], precioKg:data.precioKg, precioHarina:data.precioHarina,
+    precioGas:data.precioGas, gasPorBulto:data.gasPorBulto, rendimiento:data.rendimiento
   };
   return {...data, archive, dayKey:today,
     clientes:(data.clientes || generarClientes()).map(c=>({
@@ -69,6 +85,10 @@ export default function App(){
   const [movimientosReparto,setMovimientosReparto]=useState(initialData?.movimientosReparto || []);
   const [fechaHistorial,setFechaHistorial]=useState(getTodayKey());
   const [tipoHistorial,setTipoHistorial]=useState('ventas');
+  const [editor,setEditor]=useState(null);
+  const [editTipo,setEditTipo]=useState('Entrega');
+  const [editValor,setEditValor]=useState('');
+  const [audit,setAudit]=useState(initialData?.audit || []);
 
   const [bultos,setBultos]=useState(0);
   const [inputBultos,setInputBultos]=useState('');
@@ -112,6 +132,7 @@ export default function App(){
       setTotalPesos(s.totalPesos ?? 0);
       setHistorialVentas(s.historialVentas || []);
       setMovimientosReparto(s.movimientosReparto || []);
+      setAudit(s.audit || []);
       setGastosDiarios(s.gastosDiarios ?? 0);
       setHistorialGastos(s.historialGastos || []);
       setBultos(s.bultos ?? 0);
@@ -127,7 +148,7 @@ export default function App(){
     setReady(true);
   },[]);
 
-  const stateData={clientes,empleados,totalPesos,historialVentas,movimientosReparto,gastosDiarios,
+  const stateData={clientes,empleados,totalPesos,historialVentas,movimientosReparto,audit,gastosDiarios,
     historialGastos,bultos,precioKg,precioHarina,precioGas,gasPorBulto,
     kgRecuperados,mermaKg,rendimiento,dayKey,archive};
   currentRef.current=stateData;
@@ -135,9 +156,9 @@ export default function App(){
   useEffect(()=>{
     if(!ready) return;
     localStorage.setItem(STORAGE_KEY,JSON.stringify(stateData));
-  },[ready,clientes,empleados,totalPesos,historialVentas,movimientosReparto,gastosDiarios,
+  },[ready,clientes,empleados,totalPesos,historialVentas,movimientosReparto,audit,gastosDiarios,
     historialGastos,bultos,precioKg,precioHarina,precioGas,gasPorBulto,
-    kgRecuperados,mermaKg,rendimiento,dayKey,archive]);
+    kgRecuperados,mermaKg,rendimiento,dayKey,archive,audit]);
 
   useEffect(()=>{
     if(!ready) return;
@@ -171,11 +192,84 @@ export default function App(){
     if(pesos===0 && kg===0) return;
 
     setTotalPesos(p=>p+pesos);
-    setHistorialVentas(prev=>[...prev,{kg,pesos,...timestampLocal()}]);
+    setHistorialVentas(prev=>[...prev,{id:makeId(),kg,pesos,...timestampLocal()}]);
 
     setVentaKg('');
     setVentaPesos('');
   }
+
+  const openEditor=(kind,m,index,fecha)=>{
+    setEditor({kind,original:m,index,fecha});
+    setEditTipo(m.tipo || 'Venta');
+    setEditValor(String(kind==='venta'?num(m.kg):m.tipo==='Cobranza'?num(m.importe):num(m.kg)));
+  };
+  const commitEdit=(remove=false)=>{
+    if(!editor) return;
+    const {kind,original,index,fecha}=editor;
+    if(!remove && (!editValor.trim() || !Number.isFinite(Number(editValor)) || Number(editValor)<=0)){
+      alert('Escribe una cantidad válida mayor que cero.');return;
+    }
+    const oldDay=fecha!==dayKey;
+    const source=kind==='venta' ? (oldDay?archive[fecha]?.historialVentas:historialVentas) : movimientosReparto;
+    if(!source || source[index]!==original){alert('El movimiento cambió. Vuelve a seleccionarlo.');setEditor(null);return;}
+    if(kind==='reparto' && !clientes.some((c,i)=>sameClient(original,c,i))){
+      alert('No se encontró la tienda original. No se modificó ningún saldo.');return;
+    }
+    if(remove && !window.confirm('¿Eliminar este movimiento? Se actualizarán los totales y la deuda.'))return;
+    const amount=Number(editValor);
+    let replacement=null;
+    if(!remove){
+      if(kind==='venta'){
+        const originalPrice=num(original.kg)>0?num(original.pesos)/num(original.kg):num(precioKg);
+        replacement={...original,kg:amount,pesos:Math.round(amount*originalPrice*100)/100};
+      }else{
+        const price=['Entrega','Devolución'].includes(original.tipo)&&num(original.kg)>0
+          ? num(original.importe)/num(original.kg)
+          : (clientes.find((c,i)=>sameClient(original,c,i))?.precio || precioKg);
+        replacement={...original,tipo:editTipo,kg:editTipo==='Cobranza'?undefined:amount,
+          importe:editTipo==='Cobranza'?amount:Math.round(amount*price*100)/100,
+          fechaEntrega:editTipo==='Devolución'?(original.fechaEntrega || (()=>{const d=new Date(fecha+'T12:00:00');d.setDate(d.getDate()-1);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;})()):undefined};
+      }
+    }
+    if(kind==='venta'){
+      const next=source.filter((_,i)=>i!==index);
+      if(replacement)next.splice(index,0,replacement);
+      const total=next.reduce((a,v)=>a+num(v.pesos),0);
+      if(oldDay)setArchive(prev=>({...prev,[fecha]:{...prev[fecha],historialVentas:next,totalPesos:total}}));
+      else {setHistorialVentas(next);setTotalPesos(total);}
+    }else{
+      const next=source.filter((_,i)=>i!==index);
+      if(replacement)next.splice(index,0,replacement);
+      setMovimientosReparto(next);
+      setClientes(prev=>prev.map((c,i)=>{
+        if(!sameClient(original,c,i))return c;
+        const change=applyMovement(applyMovement(c,original,-1),replacement || {tipo:'Cobranza',importe:0},replacement?1:0);
+        return oldDay ? {...c,deuda:change.deuda,kg:change.kg,pagadoHoy:c.pagadoHoy,devHoy:c.devHoy,hoy:c.hoy} : change;
+      }));
+      if(oldDay){
+        setArchive(prev=>{
+          const snapshot=prev[fecha];
+          if(!snapshot)return prev;
+          const result={...prev};
+          Object.keys(result).filter(d=>d>=fecha).forEach(d=>{
+            const snap=result[d];
+            result[d]={...snap,clientes:(snap.clientes||[]).map((c,i)=>{
+              if(!sameClient(original,c,i))return c;
+              const change=applyMovement(applyMovement(c,original,-1),replacement || {tipo:'Cobranza',importe:0},replacement?1:0);
+              return d===fecha?change:{...c,deuda:change.deuda,kg:change.kg};
+            })};
+          });
+          return result;
+        });
+      }
+      // Si la entrega editada fue la de ayer, actualizar también el indicador «Kg ayer».
+      if(fecha===(()=>{const d=new Date(dayKey+'T12:00:00');d.setDate(d.getDate()-1);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;})()){
+        setClientes(prev=>prev.map((c,i)=>sameClient(original,c,i)?{...c,ayer:num(c.ayer)+(replacement?.tipo==='Entrega'?num(replacement.kg):0)-(original.tipo==='Entrega'?num(original.kg):0)}:c));
+      }
+    }
+    setAudit(prev=>[...prev,{fechaHora:new Date().toISOString(),accion:remove?'Eliminar':'Editar',clase:kind,anterior:original,nuevo:replacement}]);
+    setEditor(null);
+  };
 
   const pagosReparto=clientes.reduce((a,c)=>a+(c.pagadoHoy||0),0);
   const totalKgHoy = clientes.reduce((a,c)=>a+(c.hoy||0),0);
@@ -201,9 +295,9 @@ export default function App(){
     }
     const snapshot=fechaReporte===dayKey ? null : archive[fechaReporte];
     const ingresoReporte=snapshot ? (snapshot.totalPesos + snapshot.clientes.reduce((a,c)=>a+Number(c.pagadoHoy||0),0)) : ingresoTotal;
-    const costoReporte=snapshot ? (snapshot.bultos*(precioHarina+gasPorBulto*precioGas)+Number(snapshot.gastosDiarios||0)+sueldosActivos) : costoTotal;
+    const costoReporte=snapshot ? (snapshot.bultos*(num(snapshot.precioHarina ?? precioHarina)+num(snapshot.gasPorBulto ?? gasPorBulto)*num(snapshot.precioGas ?? precioGas))+Number(snapshot.gastosDiarios||0)+(snapshot.empleados || empleados).filter(e=>e.activo).reduce((a,e)=>a+num(e.sueldo),0)) : costoTotal;
     const bultosReporte=snapshot ? snapshot.bultos : bultos;
-    const kgReporte=snapshot ? (snapshot.totalPesos/precioKg+snapshot.clientes.reduce((a,c)=>a+Number(c.hoy||0),0)) : kgTotales;
+    const kgReporte=snapshot ? (snapshot.totalPesos/(snapshot.precioKg || precioKg)+snapshot.clientes.reduce((a,c)=>a+Number(c.hoy||0),0)) : kgTotales;
     const doc=new jsPDF();
     doc.text(`Reporte ${fechaReporte}`,10,10);
     doc.text(`Ingreso: $${ingresoReporte}`,10,20);
@@ -332,9 +426,9 @@ export default function App(){
                   const sello=timestampLocal();
                   const clActual=clientes[i];
                   const movimientos=[];
-                  if(ent) movimientos.push({...sello,cliente:clActual.nombre,tipo:'Entrega',kg:ent,importe:ent*clActual.precio});
-                  if(dev) movimientos.push({...sello,cliente:clActual.nombre,tipo:'Devolución',kg:dev,importe:dev*clActual.precio,fechaEntrega:dayKey > '0000' ? (()=>{const d=new Date(dayKey+'T12:00:00');d.setDate(d.getDate()-1);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;})() : ''});
-                  if(pag) movimientos.push({...sello,cliente:clActual.nombre,tipo:'Cobranza',importe:pag});
+                  if(ent) movimientos.push({...sello,id:makeId(),clienteId:i,cliente:clActual.nombre,tipo:'Entrega',kg:ent,importe:ent*clActual.precio});
+                  if(dev) movimientos.push({...sello,id:makeId(),clienteId:i,cliente:clActual.nombre,tipo:'Devolución',kg:dev,importe:dev*clActual.precio,fechaEntrega:dayKey > '0000' ? (()=>{const d=new Date(dayKey+'T12:00:00');d.setDate(d.getDate()-1);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;})() : ''});
+                  if(pag) movimientos.push({...sello,id:makeId(),clienteId:i,cliente:clActual.nombre,tipo:'Cobranza',importe:pag});
                   setMovimientosReparto(prev=>[...prev,...movimientos]);
                   setClientes(prev=>prev.map((cl,idx)=>{
                     if(idx===i){
@@ -367,6 +461,7 @@ export default function App(){
             <button className={`flex-1 p-2 rounded-lg ${tipoHistorial==='ventas'?'bg-blue-600 text-white':'bg-gray-100'}`} onClick={()=>setTipoHistorial('ventas')}>Ventas</button>
             <button className={`flex-1 p-2 rounded-lg ${tipoHistorial==='reparto'?'bg-blue-600 text-white':'bg-gray-100'}`} onClick={()=>setTipoHistorial('reparto')}>Reparto y cobranza</button>
           </div>
+          <p className="text-xs text-gray-500">Toca un movimiento para editarlo o eliminarlo.</p>
           <label className="block text-sm font-semibold">Consultar fecha</label>
           <input type="date" className="border rounded-lg p-2 w-full" value={fechaHistorial} onChange={e=>setFechaHistorial(e.target.value)} />
           {tipoHistorial==='ventas' ? (()=>{
@@ -376,7 +471,7 @@ export default function App(){
             return <div className="space-y-2">
               <p className="font-semibold">{ventas.length} ventas · {kilos.toFixed(2)} kg · ${total.toFixed(2)}</p>
               {ventas.length===0 && <p className="text-sm text-gray-500">No hay ventas registradas en esta fecha.</p>}
-              {ventas.map((v,i)=><div key={i} className="border-b py-2 text-sm flex justify-between gap-2"><span>{v.fecha || fechaHistorial} · {v.hora || 'Hora no disponible'}</span><span>{v.kg} kg · ${Number(v.pesos||0).toFixed(2)}</span></div>)}
+              {ventas.map((v,i)=><div key={v.id||i} onClick={()=>openEditor('venta',v,i,fechaHistorial)} className="border-b py-2 text-sm flex justify-between gap-2 cursor-pointer"><span>{v.fecha || fechaHistorial} · {v.hora || 'Hora no disponible'}</span><span>{v.kg} kg · ${Number(v.pesos||0).toFixed(2)}</span></div>)}
             </div>;
           })() : (()=>{
             const lista=movimientosReparto.filter(m=>m.fecha===fechaHistorial);
@@ -413,7 +508,7 @@ export default function App(){
               </div>}
               <p className="font-semibold">{lista.length} movimientos</p>
               {lista.length===0 && !resumen?.clientes?.length && <p className="text-sm text-gray-500">No hay movimientos registrados en esta fecha. Los movimientos anteriores a la instalación del historial no se pueden reconstruir individualmente.</p>}
-              {lista.map((m,i)=><div key={i} className="border-b py-2 text-sm">
+              {lista.map((m,i)=><div key={m.id||i} onClick={()=>openEditor('reparto',m,movimientosReparto.indexOf(m),fechaHistorial)} className="border-b py-2 text-sm cursor-pointer">
                 <p className="font-semibold">{m.cliente} · {m.tipo}</p>
                 <p className="text-gray-600">{m.fecha} · {m.hora}{m.tipo==='Devolución' && m.fechaEntrega ? ` · Corresponde a ${m.fechaEntrega}` : ''}</p>
                 <p>{m.kg ? `${m.kg} kg · ` : ''}${Number(m.importe||0).toFixed(2)}</p>
@@ -422,6 +517,21 @@ export default function App(){
           })()}
         </div>
       )}
+
+      {editor && <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-xl p-5 w-full max-w-sm space-y-3">
+          <h2 className="font-bold text-lg">Corregir movimiento</h2>
+          <p className="text-sm text-gray-600">{editor.fecha} · {editor.original.hora || 'Hora no disponible'} · {editor.original.cliente || 'Venta al público'}</p>
+          {editor.kind==='reparto' && <select className="border p-2 rounded w-full" value={editTipo} onChange={e=>setEditTipo(e.target.value)}>
+            <option value="Entrega">Entrega (kg)</option><option value="Devolución">Devolución (kg)</option><option value="Cobranza">Cobranza ($)</option>
+          </select>}
+          <label className="block text-sm font-medium">{editor.kind==='venta'||editTipo!=='Cobranza'?'Cantidad de kilos':'Importe cobrado ($)'}</label>
+          <input className="border p-2 rounded w-full" inputMode="decimal" value={editValor} onChange={e=>setEditValor(e.target.value)}/>
+          <div className="flex gap-2"><button className="bg-blue-600 text-white p-2 rounded flex-1" onClick={()=>commitEdit(false)}>Guardar cambios</button>
+          <button className="bg-red-600 text-white p-2 rounded" onClick={()=>commitEdit(true)}>Eliminar</button></div>
+          <button className="border rounded p-2 w-full" onClick={()=>setEditor(null)}>Cancelar</button>
+        </div>
+      </div>}
 
       {/* CONTROL */}
       {tab==='control' && (
