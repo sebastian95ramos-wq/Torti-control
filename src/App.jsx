@@ -90,6 +90,9 @@ export default function App(){
   const [editValor,setEditValor]=useState('');
   const [audit,setAudit]=useState(initialData?.audit || []);
 
+  const [movimientosProduccion,setMovimientosProduccion]=useState(initialData?.movimientosProduccion || []);
+  const [editorProduccion,setEditorProduccion]=useState(null);
+  const [valorProduccion,setValorProduccion]=useState('');
   const [bultos,setBultos]=useState(0);
   const [inputBultos,setInputBultos]=useState('');
 
@@ -136,6 +139,7 @@ export default function App(){
       setGastosDiarios(s.gastosDiarios ?? 0);
       setHistorialGastos(s.historialGastos || []);
       setBultos(s.bultos ?? 0);
+      setMovimientosProduccion(s.movimientosProduccion || []);
       setPrecioKg(s.precioKg ?? 24);
       setPrecioHarina(s.precioHarina ?? 335);
       setPrecioGas(s.precioGas ?? 11);
@@ -149,7 +153,7 @@ export default function App(){
   },[]);
 
   const stateData={clientes,empleados,totalPesos,historialVentas,movimientosReparto,audit,gastosDiarios,
-    historialGastos,bultos,precioKg,precioHarina,precioGas,gasPorBulto,
+    historialGastos,bultos,movimientosProduccion,precioKg,precioHarina,precioGas,gasPorBulto,
     kgRecuperados,mermaKg,rendimiento,dayKey,archive};
   currentRef.current=stateData;
 
@@ -157,7 +161,7 @@ export default function App(){
     if(!ready) return;
     localStorage.setItem(STORAGE_KEY,JSON.stringify(stateData));
   },[ready,clientes,empleados,totalPesos,historialVentas,movimientosReparto,audit,gastosDiarios,
-    historialGastos,bultos,precioKg,precioHarina,precioGas,gasPorBulto,
+    historialGastos,bultos,movimientosProduccion,precioKg,precioHarina,precioGas,gasPorBulto,
     kgRecuperados,mermaKg,rendimiento,dayKey,archive,audit]);
 
   useEffect(()=>{
@@ -269,6 +273,42 @@ export default function App(){
     }
     setAudit(prev=>[...prev,{fechaHora:new Date().toISOString(),accion:remove?'Eliminar':'Editar',clase:kind,anterior:original,nuevo:replacement}]);
     setEditor(null);
+  };
+
+  const corregirProduccion=(eliminar=false)=>{
+    if(!editorProduccion)return;
+    const {mov,index}=editorProduccion;
+    if(movimientosProduccion[index]!==mov){alert('El registro cambió. Selecciónalo nuevamente.');setEditorProduccion(null);return;}
+    const valor=Number(valorProduccion);
+    if(!eliminar && (valorProduccion.trim()==='' || !Number.isFinite(valor) || valor<0)){
+      alert('Ingresa una cantidad válida, igual o mayor a cero.');return;
+    }
+    if(eliminar && !window.confirm('¿Eliminar este registro de producción? Se actualizarán los totales.'))return;
+    const diferencia=(eliminar?0:valor)-num(mov.cantidad);
+    const reemplazados=movimientosProduccion.flatMap((m,i)=>i!==index?[m]:eliminar?[]:[{...m,cantidad:valor,editadoEn:new Date().toISOString()}]);
+    const setters={Bultos:setBultos,Merma:setMermaKg,Recuperados:setKgRecuperados};
+    const campo={Bultos:'bultos',Merma:'mermaKg',Recuperados:'kgRecuperados'}[mov.tipo];
+    if(!campo){alert('Tipo de registro desconocido.');return;}
+    const fecha=mov.fecha;
+    if(fecha===dayKey){
+      if(mov.tipo!=='Bultos'){
+        const ultimo=reemplazados.filter(m=>m.fecha===fecha&&m.tipo===mov.tipo).at(-1);
+        setters[mov.tipo](ultimo?num(ultimo.cantidad):0);
+      }else{
+      const actuales={bultos,mermaKg,kgRecuperados};
+      if(num(actuales[campo])+diferencia < -0.00001){alert('La corrección dejaría un total negativo.');return;}
+      setters[mov.tipo](prev=>Math.max(0,num(prev)+diferencia));
+      }
+    }else{
+      const snap=archive[fecha];
+      if(!snap){alert('No existe el cierre guardado de esta fecha.');return;}
+      const nuevoTotal=mov.tipo==='Bultos' ? num(snap[campo])+diferencia : (reemplazados.filter(m=>m.fecha===fecha&&m.tipo===mov.tipo).at(-1)?.cantidad ?? 0);
+      if(nuevoTotal < -0.00001){alert('La corrección dejaría un total negativo.');return;}
+      setArchive(prev=>({...prev,[fecha]:{...prev[fecha],[campo]:nuevoTotal}}));
+    }
+    setMovimientosProduccion(reemplazados);
+    setAudit(prev=>[...prev,{fechaHora:new Date().toISOString(),accion:eliminar?'Eliminar':'Editar',clase:'produccion',anterior:mov,nuevo:eliminar?null:{...mov,cantidad:valor}}]);
+    setEditorProduccion(null);
   };
 
   const pagosReparto=clientes.reduce((a,c)=>a+(c.pagadoHoy||0),0);
@@ -457,14 +497,32 @@ export default function App(){
       {tab==='historial' && (
         <div className="bg-white p-4 rounded-2xl shadow space-y-3">
           <h2 className="text-lg font-bold">Historial por día</h2>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <button className={`flex-1 p-2 rounded-lg ${tipoHistorial==='ventas'?'bg-blue-600 text-white':'bg-gray-100'}`} onClick={()=>setTipoHistorial('ventas')}>Ventas</button>
             <button className={`flex-1 p-2 rounded-lg ${tipoHistorial==='reparto'?'bg-blue-600 text-white':'bg-gray-100'}`} onClick={()=>setTipoHistorial('reparto')}>Reparto y cobranza</button>
+            <button className={`flex-1 p-2 rounded-lg ${tipoHistorial==='produccion'?'bg-blue-600 text-white':'bg-gray-100'}`} onClick={()=>setTipoHistorial('produccion')}>Producción</button>
           </div>
           <p className="text-xs text-gray-500">Toca un movimiento para editarlo o eliminarlo.</p>
           <label className="block text-sm font-semibold">Consultar fecha</label>
           <input type="date" className="border rounded-lg p-2 w-full" value={fechaHistorial} onChange={e=>setFechaHistorial(e.target.value)} />
-          {tipoHistorial==='ventas' ? (()=>{
+          {tipoHistorial==='produccion' && (()=>{
+            const registros=movimientosProduccion.filter(m=>m.fecha===fechaHistorial);
+            const datos=fechaHistorial===dayKey ? {bultos,mermaKg,kgRecuperados} : archive[fechaHistorial];
+            return <div className="space-y-3">
+              <div className="grid grid-cols-3 gap-2 rounded-xl bg-blue-50 p-3 text-center">
+                <div><p className="text-xs text-gray-600">Bultos</p><p className="font-bold">{num(datos?.bultos).toFixed(2)}</p></div>
+                <div><p className="text-xs text-gray-600">Merma kg</p><p className="font-bold">{num(datos?.mermaKg).toFixed(2)}</p></div>
+                <div><p className="text-xs text-gray-600">Recuperados kg</p><p className="font-bold">{num(datos?.kgRecuperados).toFixed(2)}</p></div>
+              </div>
+              <p className="text-sm text-gray-500">Selecciona un registro para corregirlo o eliminarlo. Los totales del cierre también se actualizarán.</p>
+              {registros.length===0 && <p className="text-sm text-gray-500">No hay movimientos individuales de producción para esta fecha. Los totales antiguos se conservan cuando existe un cierre guardado.</p>}
+              {registros.map(m=><button type="button" key={m.id} className="w-full text-left border-b py-2 text-sm" onClick={()=>{setEditorProduccion({mov,index:movimientosProduccion.indexOf(m)});setValorProduccion(String(m.cantidad));}}>
+                <p className="font-semibold">{m.tipo==='Bultos'?'Bultos procesados':m.tipo==='Merma'?'Merma':'Kg recuperados'}: {num(m.cantidad).toFixed(2)} {m.tipo==='Bultos'?'bultos':'kg'}</p>
+                <p className="text-gray-600">{m.fecha} · {m.hora || 'Hora no disponible'}</p>
+              </button>)}
+            </div>;
+          })()}
+          {tipoHistorial!=='produccion' && (tipoHistorial==='ventas' ? (()=>{
             const ventas=fechaHistorial===dayKey ? historialVentas : (archive[fechaHistorial]?.historialVentas || []);
             const total=ventas.reduce((a,v)=>a+Number(v.pesos||0),0);
             const kilos=ventas.reduce((a,v)=>a+Number(v.kg||0),0);
@@ -514,9 +572,22 @@ export default function App(){
                 <p>{m.kg ? `${m.kg} kg · ` : ''}${Number(m.importe||0).toFixed(2)}</p>
               </div>)}
             </div>;
-          })()}
+          })())}
         </div>
       )}
+
+      {editorProduccion && <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-xl p-5 w-full max-w-sm space-y-3">
+          <h2 className="font-bold text-lg">Corregir producción</h2>
+          <p className="text-sm text-gray-600">{editorProduccion.mov.tipo} · {editorProduccion.mov.fecha} · {editorProduccion.mov.hora}</p>
+          <input className="border rounded p-2 w-full" type="number" min="0" step="any" value={valorProduccion} onChange={e=>setValorProduccion(e.target.value)}/>
+          <div className="flex gap-2">
+            <button className="bg-blue-600 text-white rounded p-2 flex-1" onClick={()=>corregirProduccion(false)}>Guardar</button>
+            <button className="bg-red-600 text-white rounded p-2" onClick={()=>corregirProduccion(true)}>Eliminar</button>
+            <button className="bg-gray-200 rounded p-2" onClick={()=>setEditorProduccion(null)}>Cancelar</button>
+          </div>
+        </div>
+      </div>}
 
       {editor && <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
         <div className="bg-white rounded-2xl shadow-xl p-5 w-full max-w-sm space-y-3">
@@ -542,7 +613,10 @@ export default function App(){
               onChange={e=>setInputBultos(e.target.value)} />
             <button className="bg-blue-500 text-white px-3 rounded"
               onClick={()=>{
-                setBultos(prev=>prev+Number(inputBultos||0));
+                const valor=Number(inputBultos);
+                if(!Number.isFinite(valor)||valor<=0)return;
+                setBultos(prev=>prev+valor);
+                setMovimientosProduccion(prev=>[...prev,{id:makeId(),tipo:'Bultos',cantidad:valor,...timestampLocal()}]);
                 setInputBultos('');
               }}>Agregar</button>
           </div>
@@ -587,7 +661,10 @@ export default function App(){
               onChange={e=>setInputKgRec(e.target.value)} />
             <button className="bg-blue-500 text-white px-3 rounded"
               onClick={()=>{
-                setKgRecuperados(Number(inputKgRec||0));
+                const valor=Number(inputKgRec);
+                if(!Number.isFinite(valor)||valor<0||inputKgRec.trim()==='')return;
+                setKgRecuperados(valor);
+                setMovimientosProduccion(prev=>[...prev,{id:makeId(),tipo:'Recuperados',cantidad:valor,...timestampLocal()}]);
                 setInputKgRec('');
               }}>Guardar</button>
           </div>
@@ -597,7 +674,10 @@ export default function App(){
               onChange={e=>setInputMerma(e.target.value)} />
             <button className="bg-blue-500 text-white px-3 rounded"
               onClick={()=>{
-                setMermaKg(Number(inputMerma||0));
+                const valor=Number(inputMerma);
+                if(!Number.isFinite(valor)||valor<0||inputMerma.trim()==='')return;
+                setMermaKg(valor);
+                setMovimientosProduccion(prev=>[...prev,{id:makeId(),tipo:'Merma',cantidad:valor,...timestampLocal()}]);
                 setInputMerma('');
               }}>Guardar</button>
           </div>
