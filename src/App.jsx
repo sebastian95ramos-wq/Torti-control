@@ -75,6 +75,16 @@ export default function App(){
 
   const [clientes,setClientes]=useState(generarClientes());
   const [empleados,setEmpleados]=useState(generarEmpleados());
+  const [repartidores,setRepartidores]=useState(initialData?.repartidores || []);
+  const [nuevoRepartidor,setNuevoRepartidor]=useState('');
+  const [repartidorElegido,setRepartidorElegido]=useState('');
+  const [nombreRepartidor,setNombreRepartidor]=useState('');
+  const [filtroHistorialRepartidor,setFiltroHistorialRepartidor]=useState('todos');
+  const [responsableEdicion,setResponsableEdicion]=useState('');
+  const nombreResponsable=id=>repartidores.find(r=>r.id===id)?.nombre || (id?'Repartidor eliminado':'Sin asignar');
+  const disponibles=repartidores.filter(r=>r.activo!==false);
+  const opcionesRepartidores=<><option value="">Sin asignar / General</option>{disponibles.map(r=><option key={r.id} value={r.id}>{r.nombre}</option>)}</>;
+
 
   const [temp,setTemp]=useState({});
 
@@ -133,6 +143,7 @@ export default function App(){
     if(s){
       if(s.clientes) setClientes(s.clientes);
       if(s.empleados) setEmpleados(s.empleados);
+      if(s.repartidores) setRepartidores(s.repartidores);
       setTotalPesos(s.totalPesos ?? 0);
       setHistorialVentas(s.historialVentas || []);
       setMovimientosReparto(s.movimientosReparto || []);
@@ -153,7 +164,7 @@ export default function App(){
     setReady(true);
   },[]);
 
-  const stateData={clientes,empleados,totalPesos,historialVentas,movimientosReparto,audit,gastosDiarios,
+  const stateData={clientes,empleados,repartidores,totalPesos,historialVentas,movimientosReparto,audit,gastosDiarios,
     historialGastos,bultos,movimientosProduccion,precioKg,precioHarina,precioGas,gasPorBulto,
     kgRecuperados,mermaKg,rendimiento,dayKey,archive};
   currentRef.current=stateData;
@@ -161,7 +172,7 @@ export default function App(){
   useEffect(()=>{
     if(!ready) return;
     localStorage.setItem(STORAGE_KEY,JSON.stringify(stateData));
-  },[ready,clientes,empleados,totalPesos,historialVentas,movimientosReparto,audit,gastosDiarios,
+  },[ready,clientes,empleados,repartidores,totalPesos,historialVentas,movimientosReparto,audit,gastosDiarios,
     historialGastos,bultos,movimientosProduccion,precioKg,precioHarina,precioGas,gasPorBulto,
     kgRecuperados,mermaKg,rendimiento,dayKey,archive,audit]);
 
@@ -206,6 +217,7 @@ export default function App(){
   const openEditor=(kind,m,index,fecha)=>{
     setEditor({kind,original:m,index,fecha});
     setEditTipo(m.tipo || 'Venta');
+    setResponsableEdicion(m.repartidorId || '');
     setEditValor(String(kind==='venta'?num(m.kg):m.tipo==='Cobranza'?num(m.importe):num(m.kg)));
   };
   const commitEdit=(remove=false)=>{
@@ -231,7 +243,7 @@ export default function App(){
         const price=['Entrega','Devolución'].includes(original.tipo)&&num(original.kg)>0
           ? num(original.importe)/num(original.kg)
           : (clientes.find((c,i)=>sameClient(original,c,i))?.precio || precioKg);
-        replacement={...original,tipo:editTipo,kg:editTipo==='Cobranza'?undefined:amount,
+        replacement={...original,repartidorId:responsableEdicion,tipo:editTipo,kg:editTipo==='Cobranza'?undefined:amount,
           importe:editTipo==='Cobranza'?amount:Math.round(amount*price*100)/100,
           fechaEntrega:editTipo==='Devolución'?(original.fechaEntrega || (()=>{const d=new Date(fecha+'T12:00:00');d.setDate(d.getDate()-1);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;})()):undefined};
       }
@@ -434,7 +446,7 @@ export default function App(){
   </div>
 </div>
 
-          {clientes.map((c,i)=>(
+          {clientes.map((c,i)=>({c,i})).map(({c,i})=>(
             <div key={i} className="bg-white p-3 rounded-xl shadow space-y-2">
               <div className="flex justify-between">
                 <p className="font-bold">{c.nombre}</p>
@@ -472,6 +484,15 @@ export default function App(){
                   onChange={e=>setTemp({...temp,[i]:{...temp[i],dev:e.target.value}})} />
               </div>
 
+              {(Number(temp[i]?.ent||0)>0 || Number(temp[i]?.pag||0)>0 || Number(temp[i]?.dev||0)>0) && (
+                <label className="block text-sm font-semibold">Repartidor que realizó el movimiento
+                  <select className="border p-2 rounded w-full mt-1 font-normal" value={temp[i]?.responsable ?? ''} onChange={e=>setTemp(prev=>({...prev,[i]:{...prev[i],responsable:e.target.value}}))}>
+                    <option value="">Seleccionar repartidor</option>
+                    {disponibles.map(r=><option key={r.id} value={r.id}>{r.nombre}</option>)}
+                  </select>
+                  <span className="block text-xs text-gray-500 font-normal mt-1">Si varias personas realizaron los movimientos, regístralos por separado.</span>
+                </label>
+              )}
               <button className="bg-green-500 text-white w-full p-2 rounded-xl"
                 onClick={()=>{
                   const d=temp[i]||{};
@@ -480,12 +501,15 @@ export default function App(){
                   const dev=Number(d.dev||0);
 
                   if(![ent,pag,dev].every(n=>Number.isFinite(n) && n>=0) || !(ent||pag||dev)) return;
+                  if(disponibles.length>0 && !d.responsable){alert('Selecciona el repartidor que realizó el movimiento.');return;}
+                  const responsable=d.responsable || '';
+                  const responsableNombre=repartidores.find(r=>r.id===responsable)?.nombre || 'Sin asignar';
                   const sello=timestampLocal();
                   const clActual=clientes[i];
                   const movimientos=[];
-                  if(ent) movimientos.push({...sello,id:makeId(),clienteId:i,cliente:clActual.nombre,tipo:'Entrega',kg:ent,importe:ent*clActual.precio});
-                  if(dev) movimientos.push({...sello,id:makeId(),clienteId:i,cliente:clActual.nombre,tipo:'Devolución',kg:dev,importe:dev*clActual.precio,fechaEntrega:dayKey > '0000' ? (()=>{const d=new Date(dayKey+'T12:00:00');d.setDate(d.getDate()-1);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;})() : ''});
-                  if(pag) movimientos.push({...sello,id:makeId(),clienteId:i,cliente:clActual.nombre,tipo:'Cobranza',importe:pag});
+                  if(ent) movimientos.push({...sello,id:makeId(),clienteId:i,cliente:clActual.nombre,repartidorId:responsable,repartidorNombre:responsableNombre,tipo:'Entrega',kg:ent,importe:ent*clActual.precio});
+                  if(dev) movimientos.push({...sello,id:makeId(),clienteId:i,cliente:clActual.nombre,repartidorId:responsable,repartidorNombre:responsableNombre,tipo:'Devolución',kg:dev,importe:dev*clActual.precio,fechaEntrega:dayKey > '0000' ? (()=>{const d=new Date(dayKey+'T12:00:00');d.setDate(d.getDate()-1);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;})() : ''});
+                  if(pag) movimientos.push({...sello,id:makeId(),clienteId:i,cliente:clActual.nombre,repartidorId:responsable,repartidorNombre:responsableNombre,tipo:'Cobranza',importe:pag});
                   setMovimientosReparto(prev=>[...prev,...movimientos]);
                   setClientes(prev=>prev.map((cl,idx)=>{
                     if(idx===i){
@@ -556,29 +580,38 @@ export default function App(){
               {ventas.map((v,i)=><div key={v.id||i} onClick={()=>openEditor('venta',v,i,fechaHistorial)} className="border-b py-2 text-sm flex justify-between gap-2 cursor-pointer"><span>{v.fecha || fechaHistorial} · {v.hora || 'Hora no disponible'}</span><span>{v.kg} kg · ${Number(v.pesos||0).toFixed(2)}</span></div>)}
             </div>;
           })() : (()=>{
-            const lista=movimientosReparto.filter(m=>m.fecha===fechaHistorial);
+            const listaCompleta=movimientosReparto.filter(m=>m.fecha===fechaHistorial);
+            const lista=listaCompleta.filter(m=>filtroHistorialRepartidor==='todos'||(m.repartidorId||'')===filtroHistorialRepartidor);
             const resumen=archive[fechaHistorial];
             // Usar movimientos individuales cuando existen; para días antiguos,
             // utilizar los acumulados de cierre sin contarlos dos veces.
             const clientesDia=fechaHistorial===dayKey ? clientes : (resumen?.clientes || []);
             const desdeMovimientos=lista.length>0;
+            const filtrado=filtroHistorialRepartidor!=='todos';
             const suma=(items, campo)=>items.reduce((acc,item)=>acc+Number(item[campo]||0),0);
             const kgEntregados=desdeMovimientos
               ? suma(lista.filter(m=>m.tipo==='Entrega'),'kg')
-              : suma(clientesDia,'hoy');
+              : filtrado?0:suma(clientesDia,'hoy');
             const kgDevueltos=desdeMovimientos
               ? suma(lista.filter(m=>m.tipo==='Devolución'),'kg')
-              : suma(clientesDia,'devHoy');
+              : filtrado?0:suma(clientesDia,'devHoy');
             const totalCobrado=desdeMovimientos
               ? suma(lista.filter(m=>m.tipo==='Cobranza'),'importe')
-              : suma(clientesDia,'pagadoHoy');
+              : filtrado?0:suma(clientesDia,'pagadoHoy');
             return <div className="space-y-2">
+              <label className="block text-sm font-semibold">Filtrar movimientos por repartidor</label>
+              <select className="border rounded-lg p-2 w-full" value={filtroHistorialRepartidor} onChange={e=>setFiltroHistorialRepartidor(e.target.value)}>
+                <option value="todos">Todos (General)</option>
+                <option value="">Sin asignar</option>
+                {repartidores.map(r=><option key={r.id} value={r.id}>{r.nombre}{r.activo===false?' (inactivo)':''}</option>)}
+              </select>
+              {filtrado && listaCompleta.length===0 && <p className="text-xs text-amber-700">Los registros anteriores a esta función no identifican repartidores.</p>}
               <div className="grid grid-cols-3 gap-2 text-center rounded-xl bg-blue-50 p-3">
                 <div><p className="text-xs text-gray-600">Kg entregados</p><p className="font-bold">{kgEntregados.toFixed(2)}</p></div>
                 <div><p className="text-xs text-gray-600">Kg devueltos</p><p className="font-bold">{kgDevueltos.toFixed(2)}</p></div>
                 <div><p className="text-xs text-gray-600">Total cobrado</p><p className="font-bold">${totalCobrado.toFixed(2)}</p></div>
               </div>
-              {lista.length===0 && resumen?.clientes?.length>0 && <div className="rounded-lg bg-blue-50 p-3 text-sm space-y-2">
+              {!filtrado && lista.length===0 && resumen?.clientes?.length>0 && <div className="rounded-lg bg-blue-50 p-3 text-sm space-y-2">
                 <p className="font-semibold">Resumen recuperado del cierre de {fechaHistorial}</p>
                 <p className="text-gray-600">Estos son los acumulados que quedaron guardados al cerrar ese día. No son movimientos individuales; no se conservaron sus horas.</p>
                 {resumen.clientes.filter(c=>Number(c.hoy||0)>0 || Number(c.devHoy||0)>0 || Number(c.pagadoHoy||0)>0).map((c,i)=>(
@@ -589,9 +622,10 @@ export default function App(){
                 ))}
               </div>}
               <p className="font-semibold">{lista.length} movimientos</p>
-              {lista.length===0 && !resumen?.clientes?.length && <p className="text-sm text-gray-500">No hay movimientos registrados en esta fecha. Los movimientos anteriores a la instalación del historial no se pueden reconstruir individualmente.</p>}
+              {lista.length===0 && (filtrado || !resumen?.clientes?.length) && <p className="text-sm text-gray-500">No hay movimientos registrados en esta fecha. Los movimientos anteriores a la instalación del historial no se pueden reconstruir individualmente.</p>}
               {lista.map((m,i)=><div key={m.id||i} onClick={()=>openEditor('reparto',m,movimientosReparto.indexOf(m),fechaHistorial)} className="border-b py-2 text-sm cursor-pointer">
                 <p className="font-semibold">{m.cliente} · {m.tipo}</p>
+                <p className="text-xs text-blue-700">Repartidor: {(repartidores.find(r=>r.id===m.repartidorId)?.nombre || m.repartidorNombre || (m.repartidorId?'Repartidor eliminado':'Sin asignar'))}</p>
                 <p className="text-gray-600">{m.fecha} · {m.hora}{m.tipo==='Devolución' && m.fechaEntrega ? ` · Corresponde a ${m.fechaEntrega}` : ''}</p>
                 <p>{m.kg ? `${m.kg} kg · ` : ''}${Number(m.importe||0).toFixed(2)}</p>
               </div>)}
@@ -633,6 +667,7 @@ export default function App(){
           {editor.kind==='reparto' && <select className="border p-2 rounded w-full" value={editTipo} onChange={e=>setEditTipo(e.target.value)}>
             <option value="Entrega">Entrega (kg)</option><option value="Devolución">Devolución (kg)</option><option value="Cobranza">Cobranza ($)</option>
           </select>}
+          {editor.kind==='reparto' && <><label className="block text-sm font-medium">Repartidor responsable</label><select className="border p-2 rounded w-full" value={responsableEdicion} onChange={e=>setResponsableEdicion(e.target.value)}>{opcionesRepartidores}{repartidores.filter(r=>r.activo===false).map(r=><option key={r.id} value={r.id}>{r.nombre} (inactivo)</option>)}</select></>}
           <label className="block text-sm font-medium">{editor.kind==='venta'||editTipo!=='Cobranza'?'Cantidad de kilos':'Importe cobrado ($)'}</label>
           <input className="border p-2 rounded w-full" inputMode="decimal" value={editValor} onChange={e=>setEditValor(e.target.value)}/>
           <div className="flex gap-2"><button className="bg-blue-600 text-white p-2 rounded flex-1" onClick={()=>commitEdit(false)}>Guardar cambios</button>
@@ -749,6 +784,24 @@ export default function App(){
       {tab==='config' && (
         <div className="bg-white p-4 rounded-2xl shadow space-y-3">
 
+          <h2 className="font-bold">Repartidores</h2>
+          <p className="text-xs text-gray-600">Puedes desactivarlos sin borrar su historial ni las deudas de las tiendas.</p>
+          <div className="flex gap-2">
+            <input className="border rounded p-2 w-full" placeholder="Nombre del repartidor" value={nuevoRepartidor} onChange={e=>setNuevoRepartidor(e.target.value)}/>
+            <button className="bg-blue-500 text-white px-3 rounded" onClick={()=>{const nombre=nuevoRepartidor.trim();if(!nombre)return;setRepartidores(prev=>[...prev,{id:makeId(),nombre,activo:true}]);setNuevoRepartidor('');}}>Agregar</button>
+          </div>
+          <select className="border rounded p-2 w-full" value={repartidorElegido} onChange={e=>{setRepartidorElegido(e.target.value);setNombreRepartidor(repartidores.find(r=>r.id===e.target.value)?.nombre||'');}}>
+            <option value="">Selecciona un repartidor</option>
+            {repartidores.map(r=><option key={r.id} value={r.id}>{r.nombre}{r.activo===false?' (inactivo)':''}</option>)}
+          </select>
+          {repartidorElegido && repartidores.some(r=>r.id===repartidorElegido) && <div className="space-y-2">
+            <input className="border rounded p-2 w-full" placeholder="Nuevo nombre" value={nombreRepartidor} onChange={e=>setNombreRepartidor(e.target.value)}/>
+            <div className="flex gap-2">
+              <button className="bg-green-600 text-white rounded p-2 flex-1" onClick={()=>{const nombre=nombreRepartidor.trim();if(!nombre)return;setRepartidores(prev=>prev.map(r=>r.id===repartidorElegido?{...r,nombre}:r));}}>Renombrar</button>
+              <button className="bg-amber-500 text-white rounded p-2 flex-1" onClick={()=>setRepartidores(prev=>prev.map(r=>r.id===repartidorElegido?{...r,activo:!r.activo}:r))}>{repartidores.find(r=>r.id===repartidorElegido)?.activo===false?'Reactivar':'Desactivar'}</button>
+              <button className="bg-red-600 text-white rounded p-2" onClick={()=>{if(!window.confirm('¿Eliminar este repartidor? Sus movimientos históricos conservarán el nombre.'))return;setRepartidores(prev=>prev.filter(r=>r.id!==repartidorElegido));setClientes(prev=>prev.map(c=>c.repartidorId===repartidorElegido?{...c,repartidorId:''}:c));setMovimientosReparto(prev=>prev.map(m=>m.repartidorId===repartidorElegido?{...m,repartidorNombre:m.repartidorNombre||nombreResponsable(repartidorElegido)}:m));setRepartidorElegido('');setNombreRepartidor('');}}>Eliminar</button>
+            </div>
+          </div>}
           <h2 className="font-bold">Clientes</h2>
           <div className="flex gap-2">
             <input className="border p-2 w-full rounded" placeholder="Nuevo cliente" value={nuevoCliente}
