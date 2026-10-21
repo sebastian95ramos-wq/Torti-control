@@ -531,14 +531,13 @@ export default function App(){
                 <div><p className="text-xs text-gray-600">Merma kg</p><p className="font-bold">{num(datos?.mermaKg).toFixed(2)}</p></div>
                 <div><p className="text-xs text-gray-600">Recuperados kg</p><p className="font-bold">{num(datos?.kgRecuperados).toFixed(2)}</p></div>
               </div>
-              <p className="text-sm text-gray-500">Selecciona un registro para editarlo o eliminarlo. Los resúmenes antiguos sin registros individuales también pueden corregirse.</p>
+              <p className="text-sm text-gray-500">Puedes corregir los totales con los botones de abajo. El listado de movimientos se conserva como referencia.</p>
               {datos && <div className="grid grid-cols-3 gap-2">
-                {[['bultos','Bultos','Bultos'],['mermaKg','Merma','Merma'],['kgRecuperados','Recuperados','Recuperados']].map(([campo,nombre,tipo])=>{
-                  const tieneRegistros=registros.some(m=>m.tipo===tipo);
-                  return <button type="button" key={campo} disabled={tieneRegistros} className={`text-xs rounded-lg p-2 ${tieneRegistros?'bg-gray-100 text-gray-400':'bg-blue-100 text-blue-800 font-semibold'}`} onClick={()=>setEditorResumenProduccion({fecha:fechaHistorial,campo,valor:String(num(datos[campo]))})}>
-                    {tieneRegistros?'Editar registro ↑':`Editar ${nombre}`}
-                  </button>;
-                })}
+                {[['bultos','Bultos'],['mermaKg','Merma'],['kgRecuperados','Recuperados']].map(([campo,nombre])=>(
+                  <button type="button" key={campo} className="text-xs rounded-lg p-2 bg-blue-100 text-blue-800 font-semibold" onClick={()=>setEditorResumenProduccion({fecha:fechaHistorial,campo,valor:String(num(datos[campo]))})}>
+                    Editar {nombre}
+                  </button>
+                ))}
               </div>}
               {registros.length===0 && <p className="text-sm text-gray-500">No hay movimientos individuales de producción para esta fecha. Los totales antiguos se conservan cuando existe un cierre guardado.</p>}
               {registros.map(m=><button type="button" key={m.id} className="w-full text-left border-b py-2 text-sm" onClick={()=>{setEditorProduccion({mov,index:movimientosProduccion.indexOf(m)});setValorProduccion(String(m.cantidad));}}>
