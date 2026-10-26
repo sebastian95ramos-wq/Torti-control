@@ -95,6 +95,7 @@ export default function App(){
   const [movimientosReparto,setMovimientosReparto]=useState(initialData?.movimientosReparto || []);
   const [fechaHistorial,setFechaHistorial]=useState(getTodayKey());
   const [tipoHistorial,setTipoHistorial]=useState('ventas');
+  const [nuevoHistorico,setNuevoHistorico]=useState(null);
   const [editor,setEditor]=useState(null);
   const [editTipo,setEditTipo]=useState('Entrega');
   const [editValor,setEditValor]=useState('');
@@ -213,6 +214,71 @@ export default function App(){
     setVentaKg('');
     setVentaPesos('');
   }
+
+  const abrirHistorico=()=>setNuevoHistorico({fecha:fechaHistorial,clase:tipoHistorial,
+    clienteId:'0',tipo:'Entrega',kg:'',pesos:'',repartidorId:'',hora:new Date().toLocaleTimeString('es-MX',{hour12:false})});
+  const guardarHistorico=()=>{
+    const h=nuevoHistorico;
+    if(!h)return;
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(h.fecha) || h.fecha>dayKey || h.fecha<'2000-01-01'){
+      alert('Selecciona una fecha válida, igual o anterior a hoy.');return;
+    }
+    if(h.fecha!==dayKey && !archive[h.fecha]){
+      alert('No hay un cierre guardado para esa fecha. No se puede reconstruir un día sin datos previos.');return;
+    }
+    if(!/^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/.test(h.hora)){
+      alert('Escribe una hora válida (HH:MM).');return;
+    }
+    const kg=Number(h.kg),pesos=Number(h.pesos);
+    const sello={fecha:h.fecha,hora:h.hora,fechaHora:new Date().toISOString(),
+      registradoPosteriormente:true,registradoEn:new Date().toISOString(),id:makeId()};
+    if(h.clase==='ventas'){
+      if(!Number.isFinite(kg)||kg<=0||!Number.isFinite(pesos)||pesos<=0){alert('Ingresa kilos e importe mayores que cero.');return;}
+      const mov={...sello,kg,pesos};
+      if(h.fecha===dayKey){setHistorialVentas(prev=>[...prev,mov]);setTotalPesos(prev=>num(prev)+pesos);}
+      else setArchive(prev=>({...prev,[h.fecha]:{...prev[h.fecha],
+        historialVentas:[...(prev[h.fecha].historialVentas||[]),mov],totalPesos:num(prev[h.fecha].totalPesos)+pesos}}));
+      setAudit(prev=>[...prev,{accion:'Agregar movimiento histórico',clase:'venta',nuevo:mov,fechaHora:sello.registradoEn}]);
+    }else{
+      const idx=Number(h.clienteId),c=clientes[idx];
+      if(!c){alert('Selecciona un expendio válido.');return;}
+      const cobranza=h.tipo==='Cobranza';
+      const valor=cobranza?pesos:kg;
+      if(!Number.isFinite(valor)||valor<=0){alert('Ingresa una cantidad mayor que cero.');return;}
+      const precio=(h.fecha===dayKey?c.precio:(archive[h.fecha]?.clientes?.[idx]?.precio ?? c.precio));
+      if(!Number.isFinite(Number(precio))||Number(precio)<0){alert('Precio de cliente inválido.');return;}
+      if(disponibles.length && !h.repartidorId){alert('Selecciona un repartidor.');return;}
+      const responsable=repartidores.find(r=>r.id===h.repartidorId);
+      const entregaFecha=new Date(h.fecha+'T12:00:00');entregaFecha.setDate(entregaFecha.getDate()-1);
+      const fechaEntrega=`${entregaFecha.getFullYear()}-${String(entregaFecha.getMonth()+1).padStart(2,'0')}-${String(entregaFecha.getDate()).padStart(2,'0')}`;
+      const mov={...sello,clienteId:idx,cliente:c.nombre,tipo:h.tipo,
+        repartidorId:h.repartidorId,repartidorNombre:responsable?.nombre||'Sin asignar',
+        kg:cobranza?undefined:kg,importe:cobranza?pesos:Math.round(kg*Number(precio)*100)/100,
+        fechaEntrega:h.tipo==='Devolución'?fechaEntrega:undefined};
+      setMovimientosReparto(prev=>[...prev,mov]);
+      setClientes(prev=>prev.map((cl,i)=>{
+        if(i!==idx)return cl;
+        const changed=applyMovement(cl,mov,1);
+        if(h.fecha===dayKey)return changed;
+        return {...cl,deuda:changed.deuda,kg:changed.kg,
+          ayer:h.fecha===(()=>{const d=new Date(dayKey+'T12:00:00');d.setDate(d.getDate()-1);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;})() && h.tipo==='Entrega'?num(cl.ayer)+kg:cl.ayer};
+      }));
+      if(h.fecha!==dayKey)setArchive(prev=>{
+        const next={...prev};
+        Object.keys(next).filter(d=>d>=h.fecha).forEach(d=>{
+          const snap=next[d];
+          next[d]={...snap,clientes:(snap.clientes||[]).map((cl,i)=>{
+            if(i!==idx)return cl;
+            const changed=applyMovement(cl,mov,1);
+            return d===h.fecha?changed:{...cl,deuda:changed.deuda,kg:changed.kg};
+          })};
+        });
+        return next;
+      });
+      setAudit(prev=>[...prev,{accion:'Agregar movimiento histórico',clase:'reparto',nuevo:mov,fechaHora:sello.registradoEn}]);
+    }
+    setNuevoHistorico(null);
+  };
 
   const openEditor=(kind,m,index,fecha)=>{
     setEditor({kind,original:m,index,fecha});
@@ -546,6 +612,7 @@ export default function App(){
           <p className="text-xs text-gray-500">Toca un movimiento para editarlo o eliminarlo.</p>
           <label className="block text-sm font-semibold">Consultar fecha</label>
           <input type="date" className="border rounded-lg p-2 w-full" value={fechaHistorial} onChange={e=>setFechaHistorial(e.target.value)} />
+          {tipoHistorial!=='produccion' && <button type="button" className="bg-green-600 text-white rounded-lg p-3 w-full font-semibold" onClick={abrirHistorico}>+ Agregar movimiento a esta fecha</button>}
           {tipoHistorial==='produccion' && (()=>{
             const registros=movimientosProduccion.filter(m=>m.fecha===fechaHistorial);
             const datos=fechaHistorial===dayKey ? {bultos,mermaKg,kgRecuperados} : archive[fechaHistorial];
@@ -577,7 +644,7 @@ export default function App(){
             return <div className="space-y-2">
               <p className="font-semibold">{ventas.length} ventas · {kilos.toFixed(2)} kg · ${total.toFixed(2)}</p>
               {ventas.length===0 && <p className="text-sm text-gray-500">No hay ventas registradas en esta fecha.</p>}
-              {ventas.map((v,i)=><div key={v.id||i} onClick={()=>openEditor('venta',v,i,fechaHistorial)} className="border-b py-2 text-sm flex justify-between gap-2 cursor-pointer"><span>{v.fecha || fechaHistorial} · {v.hora || 'Hora no disponible'}</span><span>{v.kg} kg · ${Number(v.pesos||0).toFixed(2)}</span></div>)}
+              {ventas.map((v,i)=><div key={v.id||i} onClick={()=>openEditor('venta',v,i,fechaHistorial)} className="border-b py-2 text-sm flex justify-between gap-2 cursor-pointer"><span>{v.fecha || fechaHistorial} · {v.hora || 'Hora no disponible'}{v.registradoPosteriormente?' · Agregada posteriormente':''}</span><span>{v.kg} kg · ${Number(v.pesos||0).toFixed(2)}</span></div>)}
             </div>;
           })() : (()=>{
             const listaCompleta=movimientosReparto.filter(m=>m.fecha===fechaHistorial);
@@ -626,13 +693,54 @@ export default function App(){
               {lista.map((m,i)=><div key={m.id||i} onClick={()=>openEditor('reparto',m,movimientosReparto.indexOf(m),fechaHistorial)} className="border-b py-2 text-sm cursor-pointer">
                 <p className="font-semibold">{m.cliente} · {m.tipo}</p>
                 <p className="text-xs text-blue-700">Repartidor: {(repartidores.find(r=>r.id===m.repartidorId)?.nombre || m.repartidorNombre || (m.repartidorId?'Repartidor eliminado':'Sin asignar'))}</p>
-                <p className="text-gray-600">{m.fecha} · {m.hora}{m.tipo==='Devolución' && m.fechaEntrega ? ` · Corresponde a ${m.fechaEntrega}` : ''}</p>
+                <p className="text-gray-600">{m.fecha} · {m.hora}{m.registradoPosteriormente?' · Agregado posteriormente':''}{m.tipo==='Devolución' && m.fechaEntrega ? ` · Corresponde a ${m.fechaEntrega}` : ''}</p>
                 <p>{m.kg ? `${m.kg} kg · ` : ''}${Number(m.importe||0).toFixed(2)}</p>
               </div>)}
             </div>;
           })())}
         </div>
       )}
+
+      {nuevoHistorico && <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl p-5 w-full max-w-sm space-y-3 max-h-[90vh] overflow-y-auto">
+          <h2 className="font-bold text-lg">Agregar {nuevoHistorico.clase==='ventas'?'venta':'movimiento de reparto'} anterior</h2>
+          <p className="text-xs text-amber-700">Se guardará en la fecha elegida y quedará identificado como registro posterior.</p>
+          <label className="block text-sm">Fecha
+            <input type="date" max={dayKey} className="border rounded p-2 w-full" value={nuevoHistorico.fecha} onChange={e=>setNuevoHistorico(p=>({...p,fecha:e.target.value}))}/>
+          </label>
+          <label className="block text-sm">Hora aproximada del movimiento
+            <input type="time" step="1" className="border rounded p-2 w-full" value={nuevoHistorico.hora} onChange={e=>setNuevoHistorico(p=>({...p,hora:e.target.value}))}/>
+          </label>
+          {nuevoHistorico.clase==='reparto' && <>
+            <label className="block text-sm">Expendio
+              <select className="border rounded p-2 w-full" value={nuevoHistorico.clienteId} onChange={e=>setNuevoHistorico(p=>({...p,clienteId:e.target.value}))}>
+                {clientes.map((c,i)=><option key={i} value={i}>{c.nombre}</option>)}
+              </select>
+            </label>
+            <label className="block text-sm">Movimiento
+              <select className="border rounded p-2 w-full" value={nuevoHistorico.tipo} onChange={e=>setNuevoHistorico(p=>({...p,tipo:e.target.value}))}>
+                {['Entrega','Cobranza','Devolución'].map(t=><option key={t}>{t}</option>)}
+              </select>
+            </label>
+            <label className="block text-sm">Repartidor responsable
+              <select className="border rounded p-2 w-full" value={nuevoHistorico.repartidorId} onChange={e=>setNuevoHistorico(p=>({...p,repartidorId:e.target.value}))}>
+                <option value="">Sin asignar</option>
+                {repartidores.map(r=><option key={r.id} value={r.id}>{r.nombre}</option>)}
+              </select>
+            </label>
+          </>}
+          {(nuevoHistorico.clase==='ventas'||nuevoHistorico.tipo!=='Cobranza') && <label className="block text-sm">Kilogramos
+            <input inputMode="decimal" type="number" min="0" step="any" className="border rounded p-2 w-full" value={nuevoHistorico.kg} onChange={e=>setNuevoHistorico(p=>({...p,kg:e.target.value}))}/>
+          </label>}
+          {(nuevoHistorico.clase==='ventas'||nuevoHistorico.tipo==='Cobranza') && <label className="block text-sm">Importe en pesos
+            <input inputMode="decimal" type="number" min="0" step="any" className="border rounded p-2 w-full" value={nuevoHistorico.pesos} onChange={e=>setNuevoHistorico(p=>({...p,pesos:e.target.value}))}/>
+          </label>}
+          <div className="flex gap-2">
+            <button type="button" className="bg-green-600 text-white rounded p-2 flex-1" onClick={guardarHistorico}>Guardar movimiento</button>
+            <button type="button" className="bg-gray-200 rounded p-2" onClick={()=>setNuevoHistorico(null)}>Cancelar</button>
+          </div>
+        </div>
+      </div>}
 
       {editorResumenProduccion && <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
         <div className="bg-white rounded-2xl shadow-xl p-5 w-full max-w-sm space-y-3">
