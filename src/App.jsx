@@ -70,7 +70,8 @@ if(initialData) localStorage.setItem(STORAGE_KEY,JSON.stringify(initialData));
 
 export default function App(){
 //Estados
-  const [tab,setTab]=useState('venta');
+  const [tab,setTab]=useState('inicio');
+  const [buscarExpendio,setBuscarExpendio]=useState('');
   const [precioKg,setPrecioKg]=useState(24);
 
   const [clientes,setClientes]=useState(generarClientes());
@@ -444,18 +445,64 @@ export default function App(){
 
   }
 
+  const navigation=[['inicio','⌂','Inicio'],['venta','▣','Venta'],['reparto','▰','Reparto'],['historial','◷','Historial'],['control','▥','Control'],['config','⚙','Config.']];
+  const moneda=v=>`$${Number(v||0).toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2})}`;
   return (
-    <div className="p-4 bg-gray-100 min-h-screen space-y-4">
-      <h1 className="text-2xl font-bold">Tortillería</h1>
-
-      <div className="flex gap-2">
-        {['venta','reparto','historial','control','config'].map(t=>(
-          <button key={t} onClick={()=>setTab(t)}
-            className={`flex-1 p-2 rounded-xl ${tab===t?'bg-blue-500 text-white':'bg-white shadow'}`}>
-            {t}
-          </button>
-        ))}
-      </div>
+    <div className="tc-app min-h-screen pb-24">
+      <style>{`
+        .tc-app{background:#f1f5f9;color:#14283d;font-family:system-ui,-apple-system,sans-serif;min-height:100vh}
+        .tc-app .tc-header{background:linear-gradient(125deg,#073657,#0b5484);color:white;padding:22px 18px 26px;border-radius:0 0 24px 24px;box-shadow:0 7px 22px #0b31512b}
+        .tc-app .tc-main{max-width:860px;margin:-12px auto 0;padding:0 13px 25px}
+        .tc-app .bg-white{background:#fff;border:1px solid #e6edf5}
+        .tc-app .shadow{box-shadow:0 4px 18px #183c6110}
+        .tc-app .rounded-2xl{border-radius:20px}
+        .tc-app .rounded-xl{border-radius:15px}
+        .tc-app input,.tc-app select,.tc-app textarea{min-height:43px;background:#fff;border-color:#d8e2ed;border-radius:11px;max-width:100%;font-size:16px}
+        .tc-app input[type=checkbox]{min-height:auto;width:20px;height:20px;accent-color:#1268d8}
+        .tc-app button{transition:filter .15s,transform .1s;font-weight:600}
+        .tc-app button:active{transform:scale(.985)}
+        .tc-app .bg-blue-500,.tc-app .bg-blue-600{background:#1466db}
+        .tc-app .bg-green-500,.tc-app .bg-green-600{background:#09a65b}
+        .tc-app .bg-red-500,.tc-app .bg-red-600{background:#dc4053}
+        .tc-app .bg-blue-50{background:#edf5ff}
+        .tc-app .tc-bottom{position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:1px solid #e1e8f0;display:grid;grid-template-columns:repeat(6,minmax(0,1fr));padding:7px 3px max(8px,env(safe-area-inset-bottom));z-index:30;box-shadow:0 -5px 22px #122c4615}
+        .tc-app .tc-nav{display:flex;align-items:center;flex-direction:column;gap:2px;padding:6px 0;color:#687c90;font-size:10px;border-radius:12px}
+        .tc-app .tc-nav .tc-symbol{font-size:22px;line-height:25px}
+        .tc-app .tc-nav.active{background:#eaf2ff;color:#1265dc}
+        .tc-app .tc-stat{padding:17px 14px;border-radius:18px;background:#fff;border:1px solid #e2ebf4;box-shadow:0 4px 12px #173c5d0c}
+        .tc-app .tc-stat strong{display:block;font-size:23px;margin-top:8px;letter-spacing:-.5px}
+        .tc-app .tc-quick{border-radius:15px;padding:17px 12px;text-align:center;display:flex;flex-direction:column;align-items:center;gap:6px}
+        .tc-app .tc-quick span{font-size:24px}
+        .tc-app .tc-section-label{font-weight:750;font-size:17px;margin:10px 0 2px}
+        .tc-app .tc-search{width:100%;padding:12px 14px;border:1px solid #d9e4ef;border-radius:14px;background:white}
+        @media(min-width:850px){.tc-app .tc-bottom{left:50%;transform:translateX(-50%);max-width:860px;border-radius:18px 18px 0 0}}
+      `}</style>
+      <header className="tc-header">
+        <div className="max-w-4xl mx-auto flex items-center gap-3">
+          <div className="text-3xl" aria-hidden="true">🌽</div>
+          <div className="flex-1"><div className="font-extrabold text-xl tracking-tight">Torti Control</div><div className="text-sm opacity-80">{tab==='inicio'?'Resumen del día':({venta:'Venta · Mostrador',reparto:'Reparto a expendios',historial:'Historial de movimientos',control:'Control del día',config:'Configuración'})[tab]}</div></div>
+          <div className="text-xs opacity-80 text-right">{dayKey.split('-').reverse().join('/')}</div>
+        </div>
+      </header>
+      <main className="tc-main space-y-4">
+      {tab==='inicio' && (
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="tc-stat"><div className="text-xs text-slate-500">💵 Ingresos del día</div><strong>{moneda(ingresoTotal)}</strong><div className="text-xs text-slate-500">Ventas y cobros</div></div>
+            <div className="tc-stat"><div className="text-xs text-slate-500">🚚 Reparto de hoy</div><strong>{totalKgHoy.toFixed(2)} kg</strong><div className="text-xs text-slate-500">{clientes.length} expendios</div></div>
+            <div className="tc-stat"><div className="text-xs text-slate-500">🏭 Producción</div><strong>{bultos} bultos</strong><div className="text-xs text-slate-500">{kgEsperados.toFixed(2)} kg esperados</div></div>
+            <div className="tc-stat"><div className="text-xs text-slate-500">📈 Utilidad estimada</div><strong>{moneda(utilidad)}</strong><div className="text-xs text-slate-500">Según costos registrados</div></div>
+          </div>
+          <div className="tc-section-label">Accesos rápidos</div>
+          <div className="grid grid-cols-2 gap-3">
+            <button onClick={()=>setTab('venta')} className="tc-quick bg-green-500 text-white"><span>🛒</span>Registrar venta</button>
+            <button onClick={()=>setTab('reparto')} className="tc-quick bg-blue-600 text-white"><span>🚚</span>Registrar reparto</button>
+            <button onClick={()=>setTab('historial')} className="tc-quick bg-white text-blue-700"><span>◷</span>Ver historial</button>
+            <button onClick={()=>setTab('control')} className="tc-quick bg-white text-blue-700"><span>▥</span>Control y reportes</button>
+          </div>
+          <div className="bg-white rounded-2xl p-4 shadow space-y-2"><div className="font-bold">Estado de reparto</div><div className="flex justify-between text-sm"><span>Deuda total de expendios</span><strong>{moneda(clientes.reduce((a,c)=>a+num(c.deuda),0))}</strong></div><div className="flex justify-between text-sm"><span>Devoluciones de hoy</span><strong>{totalDevHoy.toFixed(2)} kg</strong></div></div>
+        </div>
+      )}
 
       {/* VENTA */}
       {tab==='venta' && (
@@ -512,7 +559,8 @@ export default function App(){
   </div>
 </div>
 
-          {clientes.map((c,i)=>({c,i})).map(({c,i})=>(
+          <input className="tc-search" value={buscarExpendio} onChange={e=>setBuscarExpendio(e.target.value)} placeholder="🔎 Buscar expendio..." aria-label="Buscar expendio" />
+          {clientes.map((c,i)=>({c,i})).filter(({c})=>c.nombre.toLocaleLowerCase('es').includes(buscarExpendio.toLocaleLowerCase('es'))).map(({c,i})=>(
             <div key={i} className="bg-white p-3 rounded-xl shadow space-y-2">
               <div className="flex justify-between">
                 <p className="font-bold">{c.nombre}</p>
@@ -1006,7 +1054,10 @@ export default function App(){
 
         </div>
       )}
-
+      </main>
+      <nav className="tc-bottom" aria-label="Navegación principal">
+        {navigation.map(([key,symbol,label])=><button key={key} className={`tc-nav ${tab===key?'active':''}`} onClick={()=>{setTab(key);window.scrollTo(0,0)}} aria-current={tab===key?'page':undefined}><span className="tc-symbol" aria-hidden="true">{symbol}</span><span>{label}</span></button>)}
+      </nav>
     </div>
   )
 }
